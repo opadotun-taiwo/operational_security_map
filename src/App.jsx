@@ -40,14 +40,9 @@ function App() {
         const rawHubs = hubsResponse.data || [];
         
         // Calculate proximity for events and hubs
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
         const processedEvents = rawEvents.map(event => {
           let isNearHub = false;
-          const isRecent = event.date ? new Date(event.date) >= threeMonthsAgo : false;
-
-          if (isRecent && event.latitude && event.longitude) {
+          if (event.latitude && event.longitude) {
             const eventPoint = turf.point([parseFloat(event.longitude), parseFloat(event.latitude)]);
             for (const hub of rawHubs) {
               if (hub.latitude && hub.longitude) {
@@ -60,7 +55,7 @@ function App() {
               }
             }
           }
-          return { ...event, isNearHub, isRecent };
+          return { ...event, isNearHub };
         });
 
         const processedHubs = rawHubs.map(hub => {
@@ -68,7 +63,7 @@ function App() {
           if (hub.latitude && hub.longitude) {
             const hubPoint = turf.point([parseFloat(hub.longitude), parseFloat(hub.latitude)]);
             for (const event of processedEvents) {
-              if (event.isRecent && event.latitude && event.longitude) {
+              if (event.latitude && event.longitude) {
                 const eventPoint = turf.point([parseFloat(event.longitude), parseFloat(event.latitude)]);
                 const distance = turf.distance(hubPoint, eventPoint, { units: 'kilometers' });
                 if (distance <= 5) {
@@ -153,8 +148,7 @@ function App() {
     );
   }
 
-  const threateningEvents = events.filter(e => e.isNearHub);
-  const isAnyHubThreatened = threateningEvents.length > 0;
+  const isAnyHubThreatened = events.some(e => e.isNearHub);
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-900 text-white font-sans">
@@ -168,8 +162,6 @@ function App() {
         <Sidebar 
           events={filteredEvents}
           isAnyHubThreatened={isAnyHubThreatened}
-          threateningEvents={threateningEvents}
-          onEventClick={setSelectedEvent}
         />
         
         <main className="flex-1 relative">

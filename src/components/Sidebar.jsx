@@ -13,7 +13,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
   </div>
 );
 
-export default function Sidebar({ events, isAnyHubThreatened, threateningEvents, onEventClick }) {
+export default function Sidebar({ events, isAnyHubThreatened }) {
   const totalIncidents = events.length;
   const totalFatalities = events.reduce((sum, e) => sum + (e.fatalities || 0), 0);
   const totalInjured = events.reduce((sum, e) => sum + (e.injured || 0), 0);
@@ -26,29 +26,14 @@ export default function Sidebar({ events, isAnyHubThreatened, threateningEvents,
         <h2 className="text-sm uppercase tracking-wider text-gray-500 font-bold mb-4">Live Status</h2>
         
         {isAnyHubThreatened ? (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex flex-col gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-500/20 rounded-lg shrink-0">
-                <AlertCircle size={24} className="text-red-500" />
-              </div>
-              <div>
-                <p className="text-red-400 font-bold text-sm">Alert: Hubs Threatened</p>
-                <p className="text-red-300/80 text-xs mt-0.5">Events detected within 5km of operations</p>
-              </div>
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
+            <div className="p-2 bg-red-500/20 rounded-lg shrink-0">
+              <AlertCircle size={24} className="text-red-500" />
             </div>
-            {threateningEvents && threateningEvents.length > 0 && (
-              <div className="mt-2 flex flex-col gap-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                {threateningEvents.map(event => (
-                  <button
-                    key={event.id || event.event_id}
-                    onClick={() => onEventClick && onEventClick(event)}
-                    className="text-left text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 p-2 rounded-lg border border-red-500/20 transition-colors"
-                  >
-                    <span className="font-bold">{event.event_type || 'Event'}</span> - {event.date ? new Date(event.date).toLocaleDateString() : 'Unknown Date'}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div>
+              <p className="text-red-400 font-bold text-sm">Alert: Hubs Threatened</p>
+              <p className="text-red-300/80 text-xs mt-0.5">Events detected within 5km of operations</p>
+            </div>
           </div>
         ) : (
           <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-center gap-3">
