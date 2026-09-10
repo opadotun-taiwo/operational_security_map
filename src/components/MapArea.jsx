@@ -6,7 +6,7 @@ import * as turf from '@turf/turf';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-const CustomMarker = ({ event, onClick }) => {
+const CustomMarker = ({ event, onClick, isGrouped }) => {
   const isCritical = event.severity?.toLowerCase() === 'critical';
   const isHigh = event.severity?.toLowerCase() === 'high';
   
@@ -18,10 +18,12 @@ const CustomMarker = ({ event, onClick }) => {
   else if (isHigh) colorClass = 'bg-orange-500';
 
   // Apply the pulsing glow if the event is flagged as near a hub
-  const hubPulseClass = event.isNearHub ? 'ring-4 ring-red-500/50' : '';
+  const hubPulseClass = event.isNearHub ? 'ring-2 ring-red-500/50' : '';
   
   // Apply a recency animation (ping) and maybe a bright yellow core if it's very recent
   const recentClass = isRecent ? 'animate-bounce border-yellow-400' : 'border-white';
+
+  const sizeClass = isGrouped ? 'w-2.5 h-2.5' : 'w-3 h-3';
 
   return (
     <div 
@@ -32,9 +34,9 @@ const CustomMarker = ({ event, onClick }) => {
       }}
     >
       {isRecent && (
-        <span className="absolute inline-flex h-8 w-8 rounded-full bg-yellow-400 opacity-40 animate-ping"></span>
+        <span className={`absolute inline-flex ${isGrouped ? 'h-5 w-5' : 'h-6 w-6'} rounded-full bg-yellow-400 opacity-40 animate-ping`}></span>
       )}
-      <div className={`w-4 h-4 rounded-full border-2 shadow-lg ${colorClass} ${recentClass} ${hubPulseClass} transition-transform group-hover:scale-125 z-10`}></div>
+      <div className={`${sizeClass} rounded-full border shadow-lg ${colorClass} ${recentClass} ${hubPulseClass} transition-transform group-hover:scale-150 z-10`}></div>
     </div>
   );
 };
@@ -67,23 +69,49 @@ export default function MapArea({ events, hubs, onEventClick }) {
   };
 
   const markers = useMemo(() => {
-    return events.map((event) => {
+    const groups = {};
+    events.forEach((event) => {
       const lat = parseFloat(event.latitude);
       const lng = parseFloat(event.longitude);
-
-      if (isNaN(lat) || isNaN(lng)) return null;
-
-      return (
-        <Marker
-          key={`event-${event.event_id || event.id}`}
-          longitude={lng}
-          latitude={lat}
-          anchor="center"
-        >
-          <CustomMarker event={event} onClick={onEventClick} />
-        </Marker>
-      );
+      if (isNaN(lat) || isNaN(lng)) return;
+      const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(event);
     });
+
+    const allMarkers = [];
+    Object.values(groups).forEach(group => {
+      const n = group.length;
+      group.forEach((event, index) => {
+        const lat = parseFloat(event.latitude);
+        const lng = parseFloat(event.longitude);
+        
+        let xOffset = 0;
+        let yOffset = 0;
+        
+        if (n > 1) {
+          // Distribute in a circle around the center point
+          const radius = Math.max(10, n * 2.5); // Increase radius slightly based on number of items
+          const angle = (index / n) * 2 * Math.PI;
+          xOffset = Math.cos(angle) * radius;
+          yOffset = Math.sin(angle) * radius;
+        }
+
+        allMarkers.push(
+          <Marker
+            key={`event-${event.event_id || event.id}`}
+            longitude={lng}
+            latitude={lat}
+            anchor="center"
+            offset={[xOffset, yOffset]}
+            style={{ zIndex: n > 1 ? 20 - index : 10 }}
+          >
+            <CustomMarker event={event} onClick={onEventClick} isGrouped={n > 1} />
+          </Marker>
+        );
+      });
+    });
+    return allMarkers;
   }, [events, onEventClick]);
 
   const hubMarkers = useMemo(() => {
