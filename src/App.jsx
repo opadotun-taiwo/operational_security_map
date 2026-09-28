@@ -3,7 +3,9 @@ import { supabase } from './supabase';
 import Sidebar from './components/Sidebar';
 import MapArea from './components/MapArea';
 import DetailsPanel from './components/DetailsPanel';
+import ClusterPanel from './components/ClusterPanel';
 import TopBar from './components/TopBar';
+import Tutorial from './components/Tutorial';
 import { Loader2 } from 'lucide-react';
 import * as turf from '@turf/turf';
 
@@ -13,6 +15,14 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedClusterEvents, setSelectedClusterEvents] = useState(null);
+  const [activeHub, setActiveHub] = useState(null);
+  const [mapLayers, setMapLayers] = useState({
+    incidents: true,
+    hubs: true,
+    proximity: true,
+    hotspots: false,
+  });
 
   const [filters, setFilters] = useState({
     search: '',
@@ -158,6 +168,7 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-900 text-white font-sans">
+      <Tutorial />
       <TopBar 
         filters={filters} 
         setFilters={setFilters} 
@@ -186,6 +197,11 @@ function App() {
             events={filteredEvents} 
             hubs={hubs}
             onEventClick={setSelectedEvent} 
+            onClusterClick={setSelectedClusterEvents}
+            mapLayers={mapLayers}
+            setMapLayers={setMapLayers}
+            activeHub={activeHub}
+            setActiveHub={setActiveHub}
           />
 
           {!loading && filteredEvents.length === 0 && (
@@ -200,10 +216,18 @@ function App() {
             </div>
           )}
 
-          <DetailsPanel 
-            event={selectedEvent} 
-            onClose={() => setSelectedEvent(null)} 
-          />
+          {selectedEvent ? (
+            <DetailsPanel 
+              event={selectedEvent} 
+              onClose={() => setSelectedEvent(null)} 
+            />
+          ) : (
+            <ClusterPanel 
+              events={selectedClusterEvents}
+              onClose={() => setSelectedClusterEvents(null)}
+              onEventClick={(e) => setSelectedEvent(e)}
+            />
+          )}
         </main>
       </div>
     </div>

@@ -15,7 +15,7 @@ export default function TopBar({ filters, setFilters, states }) {
         </div>
 
         {/* Filters Area */}
-        <div className="flex flex-wrap items-center gap-4 flex-1">
+        <div className="flex flex-wrap items-center gap-4 flex-1 tutorial-step-1">
           <div className="flex items-center bg-gray-800 rounded-lg overflow-hidden border border-gray-700 min-w-[200px]">
             <span className="pl-3 text-gray-400">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -19,6 +19,7 @@
     "mapbox-gl": "^3.29.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-joyride": "^3.2.0",
     "react-map-gl": "^8.1.3",
     "supercluster": "^9.1.0",
     "tailwind-merge": "^3.6.0",
