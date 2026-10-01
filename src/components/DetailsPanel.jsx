@@ -95,14 +95,14 @@ export default function DetailsPanel({ event, onClose }) {
           </p>
         </div>
 
-        {event.source_link && (
+        {event.source_url && (
           <a 
-            href={event.source_link} 
+            href={event.source_url} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm font-medium border border-gray-700"
+            className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium border border-blue-500 mt-2"
           >
-            View Source <ExternalLink size={16} />
+            Read Source Article <ExternalLink size={16} />
           </a>
         )}
       </div>
