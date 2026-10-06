@@ -74,7 +74,7 @@ export default function DetailsPanel({ event, onClose }) {
                 <span className="text-gray-500 text-xs uppercase">Injured</span>
                 {event.injured || 0}
               </span>
-              <span className="text-purple-400 flex flex-col">
+              <span className="text-yellow-400 flex flex-col">
                 <span className="text-gray-500 text-xs uppercase">Abducted</span>
                 {event.abducted || 0}
               </span>
@@ -100,7 +100,7 @@ export default function DetailsPanel({ event, onClose }) {
             href={event.source_url} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium border border-blue-500 mt-2"
+            className="flex items-center justify-center gap-2 w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors text-sm font-medium border border-green-500 mt-2"
           >
             Read Source Article <ExternalLink size={16} />
           </a>

@@ -261,7 +261,7 @@ export default function MapArea({ events, hubs, onEventClick, onClusterClick, ma
                   ['linear'],
                   ['heatmap-density'],
                   0, 'rgba(0,0,0,0)',
-                  0.2, '#4c1d95', // purple
+                  0.2, '#2563eb', // blue
                   0.4, '#b91c1c', // red
                   0.6, '#ea580c', // orange
                   0.8, '#eab308', // yellow

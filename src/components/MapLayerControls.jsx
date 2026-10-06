@@ -40,7 +40,7 @@ export default function MapLayerControls({ mapLayers, setMapLayers }) {
             onClick={() => toggleLayer('hubs')} 
           />
           <LayerToggle 
-            icon={<ShieldAlert className="w-4 h-4 text-purple-400" />}
+            icon={<ShieldAlert className="w-4 h-4 text-yellow-400" />}
             label="Proximity Zones (5km)" 
             isActive={mapLayers.proximity} 
             onClick={() => toggleLayer('proximity')} 
