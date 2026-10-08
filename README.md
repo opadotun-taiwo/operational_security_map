@@ -7,11 +7,11 @@ OneSecure is a React-based web application that visualizes security events and m
 ## 📸 Screenshots
 
 ### 1. Main Dashboard View
-![Main Dashboard](./public/screenshots/main-dashboard.png)
+![Main Dashboard](./public/onesecure1.png)
 *Displays the main map interface with the sidebar, top navigation, incident details panel, and map clusters.*
 
 ### 2. Map Layer Controls
-![Map Layer Controls](./public/screenshots/map-layers.png)
+![Map Layer Controls](./public/onesecure2.png)
 *Shows the interactive map layer controls for toggling security incidents, operational hubs, and proximity zones.*
 
 ---
