@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import MapArea from './components/MapArea';
 import DetailsPanel from './components/DetailsPanel';
 import ClusterPanel from './components/ClusterPanel';
+import RoutePanel from './components/RoutePanel';
 import TopBar from './components/TopBar';
 import Tutorial from './components/Tutorial';
 import { Loader2 } from 'lucide-react';
@@ -17,6 +18,8 @@ function App() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedClusterEvents, setSelectedClusterEvents] = useState(null);
   const [activeHub, setActiveHub] = useState(null);
+
+  // Layer toggles
   const [mapLayers, setMapLayers] = useState({
     incidents: true,
     hubs: true,
@@ -24,10 +27,23 @@ function App() {
     hotspots: false,
   });
 
+  // Hotspot configuration
+  const [hotspotSettings, setHotspotSettings] = useState({
+    timeHorizon: 'all', // 'all' | '90d' | '30d'
+    weightedBySeverity: true
+  });
+
+  // Route Intelligence state
+  const [isRoutePanelOpen, setIsRoutePanelOpen] = useState(false);
+  const [activeRouteData, setActiveRouteData] = useState(null);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+
+  // Filters state
   const [filters, setFilters] = useState({
     search: '',
     severity: 'All',
     eventType: 'All',
+    verificationStatus: 'All',
     state: 'All',
     showOnlyNearHubs: false,
     dateFrom: '',
@@ -113,13 +129,17 @@ function App() {
     return events.filter(event => {
       const searchMatch = !filters.search || 
         (event.description?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
-        (event.lga?.toLowerCase() || '').includes(filters.search.toLowerCase());
+        (event.lga?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
+        (event.location?.toLowerCase() || '').includes(filters.search.toLowerCase());
 
       const severityMatch = filters.severity === 'All' || 
         event.severity?.toLowerCase() === filters.severity.toLowerCase();
 
       const eventTypeMatch = filters.eventType === 'All' || 
         event.event_type?.toLowerCase() === filters.eventType.toLowerCase();
+
+      const verificationMatch = filters.verificationStatus === 'All' ||
+        (event.verification_status || '').toLowerCase() === filters.verificationStatus.toLowerCase();
 
       const stateMatch = filters.state === 'All' || 
         event.state === filters.state;
@@ -139,40 +159,43 @@ function App() {
         }
       }
 
-      return searchMatch && severityMatch && eventTypeMatch && stateMatch && nearHubMatch && dateMatch;
+      return searchMatch && severityMatch && eventTypeMatch && verificationMatch && stateMatch && nearHubMatch && dateMatch;
     });
   }, [events, filters]);
 
+  const threateningEvents = events.filter(e => e.isNearHub);
+  const isAnyHubThreatened = threateningEvents.length > 0;
+
   if (error) {
     return (
-      <div className="h-screen w-full bg-gray-900 flex items-center justify-center text-white flex-col">
+      <div className="h-screen w-full bg-gray-950 flex items-center justify-center text-white flex-col">
         <div className="text-red-500 mb-4 bg-red-500/10 p-4 rounded-full">
           <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold mb-2">Error Loading Data</h2>
+        <h2 className="text-xl font-bold mb-2">Error Loading Intelligence Data</h2>
         <p className="text-gray-400">{error}</p>
         <button 
           onClick={() => window.location.reload()}
-          className="mt-6 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          className="mt-6 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
         >
-          Retry
+          Retry Connection
         </button>
       </div>
     );
   }
 
-  const threateningEvents = events.filter(e => e.isNearHub);
-  const isAnyHubThreatened = threateningEvents.length > 0;
-
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-900 text-white font-sans">
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-950 text-white font-sans">
       <Tutorial />
       <TopBar 
         filters={filters} 
         setFilters={setFilters} 
-        states={uniqueStates} 
+        states={uniqueStates}
+        isRoutePanelOpen={isRoutePanelOpen}
+        setIsRoutePanelOpen={setIsRoutePanelOpen}
+        hasActiveRoute={Boolean(activeRouteData)}
       />
       
       <div className="flex flex-1 overflow-hidden relative">
@@ -185,13 +208,35 @@ function App() {
         
         <main className="flex-1 relative">
           {loading ? (
-            <div className="absolute inset-0 z-20 bg-gray-900/80 flex items-center justify-center backdrop-blur-sm">
+            <div className="absolute inset-0 z-30 bg-gray-950/80 flex items-center justify-center backdrop-blur-sm">
               <div className="flex flex-col items-center gap-4">
-                <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
-                <p className="text-blue-400 font-medium tracking-wide">Loading live events & hubs...</p>
+                <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+                <p className="text-cyan-300 font-medium tracking-wide">Loading intelligence feeds & hubs...</p>
               </div>
             </div>
           ) : null}
+
+          {/* Route Planning & Security Exposure Panel */}
+          <RoutePanel
+            isOpen={isRoutePanelOpen}
+            onClose={() => setIsRoutePanelOpen(false)}
+            hubs={hubs}
+            events={filteredEvents}
+            activeRouteData={activeRouteData}
+            selectedRouteIndex={selectedRouteIndex}
+            onSelectRouteIndex={setSelectedRouteIndex}
+            onRouteCalculated={(routePayload) => {
+              setActiveRouteData(routePayload);
+              setSelectedRouteIndex(0);
+            }}
+            onClearRoute={() => {
+              setActiveRouteData(null);
+              setSelectedRouteIndex(0);
+            }}
+            onSelectEvent={(event) => {
+              setSelectedEvent(event);
+            }}
+          />
 
           <MapArea 
             events={filteredEvents} 
@@ -202,6 +247,11 @@ function App() {
             setMapLayers={setMapLayers}
             activeHub={activeHub}
             setActiveHub={setActiveHub}
+            activeRouteData={activeRouteData}
+            selectedRouteIndex={selectedRouteIndex}
+            onSelectRouteIndex={setSelectedRouteIndex}
+            hotspotSettings={hotspotSettings}
+            setHotspotSettings={setHotspotSettings}
           />
 
           {!loading && filteredEvents.length === 0 && (
@@ -210,8 +260,8 @@ function App() {
                 <svg className="w-16 h-16 text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <h3 className="text-lg font-bold text-white mb-1">No events found</h3>
-                <p className="text-gray-400 text-sm">Try adjusting your filter criteria</p>
+                <h3 className="text-lg font-bold text-white mb-1">No security events found</h3>
+                <p className="text-gray-400 text-sm">Try broadening your filter criteria</p>
               </div>
             </div>
           )}

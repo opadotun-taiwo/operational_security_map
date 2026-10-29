@@ -1,106 +1,111 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
-import Map, { Marker, NavigationControl, Source, Layer } from 'react-map-gl/mapbox';
-import { Home } from 'lucide-react';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import * as turf from '@turf/turf';
+import React, { useMemo, useState } from 'react';
+import { 
+  APIProvider, 
+  Map, 
+  AdvancedMarker, 
+  useMap 
+} from '@vis.gl/react-google-maps';
 import useSupercluster from 'use-supercluster';
+import { RotateCcw, AlertCircle } from 'lucide-react';
+import IncidentMarker from './IncidentMarker';
+import HubMarker from './HubMarker';
+import RoutePolylineLayer from './RoutePolylineLayer';
+import ProximityCircleLayer from './ProximityCircleLayer';
+import HeatmapLayer from './HeatmapLayer';
 import MapLayerControls from './MapLayerControls';
+import { darkMapStyles } from '../utils/googleMapStyles';
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCSl0cp_JRq0RiSbxh0WCUYS1OzKnZCeK4';
+const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
 
-const CustomMarker = ({ event, onClick, activeHubObj }) => {
-  const isCritical = event.severity?.toLowerCase() === 'critical';
-  const isHigh = event.severity?.toLowerCase() === 'high';
-  
-  const isRecent = event.date && (Date.now() - new Date(event.date).getTime()) <= 7 * 24 * 60 * 60 * 1000;
-  
-  let colorClass = 'bg-blue-500';
-  if (isCritical) colorClass = 'bg-red-500';
-  else if (isHigh) colorClass = 'bg-orange-500';
+const INITIAL_CENTER = { lat: 9.0820, lng: 8.6753 }; // Nigeria center
+const INITIAL_ZOOM = 6;
 
-  const isHighlighted = useMemo(() => {
-    if (!activeHubObj) return false;
-    const pt1 = turf.point([parseFloat(event.longitude), parseFloat(event.latitude)]);
-    const pt2 = turf.point([parseFloat(activeHubObj.longitude), parseFloat(activeHubObj.latitude)]);
-    return turf.distance(pt1, pt2, { units: 'kilometers' }) <= 5;
-  }, [activeHubObj, event.latitude, event.longitude]);
-
-  const highlightClass = isHighlighted ? 'ring-4 ring-yellow-400 scale-125 z-30' : '';
-  const recentClass = isRecent ? 'animate-bounce border-yellow-400' : 'border-white';
-
-  return (
-    <div 
-      className={`relative flex items-center justify-center cursor-pointer group ${isHighlighted ? 'z-30' : 'z-10'}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick(event);
-      }}
-    >
-      {isRecent && (
-        <span className="absolute inline-flex h-6 w-6 rounded-full bg-yellow-400 opacity-40 animate-ping"></span>
-      )}
-      <div className={`w-3 h-3 rounded-full border shadow-lg ${colorClass} ${recentClass} ${highlightClass} transition-all duration-300 group-hover:scale-150`}></div>
-    </div>
-  );
-};
-
-const HubMarker = ({ hub, isActive }) => {
-  const isThreatened = hub.isThreatened;
-  const colorClass = isThreatened ? 'bg-red-500' : 'bg-green-500';
-  const pulseClass = isThreatened ? 'bg-red-400' : 'bg-green-400';
-  const activeClass = isActive ? 'ring-4 ring-white scale-110 z-20' : '';
-
-  return (
-    <div className={`relative flex flex-col items-center justify-center pointer-events-none mt-6 transition-transform ${activeClass}`}>
-      <span className={`text-white bg-black/80 px-2 py-0.5 rounded text-xs font-bold whitespace-nowrap mb-1 shadow-lg transition-opacity ${isActive ? 'opacity-100' : 'opacity-80'}`}>
-        {hub.location_name}
-      </span>
-      <div className="relative flex h-8 w-8 items-center justify-center">
-        {isActive && (
-           <span className={`animate-ping absolute inline-flex h-12 w-12 rounded-full ${pulseClass} opacity-50`}></span>
-        )}
-        <div className={`relative flex items-center justify-center h-8 w-8 rounded-full ${colorClass} border-2 border-white shadow-lg`}>
-          <Home size={16} className="text-white" />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default function MapArea({ events, hubs, onEventClick, onClusterClick, mapLayers, setMapLayers, activeHub, setActiveHub }) {
-  const mapRef = useRef();
+/**
+ * Inner Map Content component having access to `useMap()`.
+ */
+function MapContent({
+  events,
+  hubs,
+  onEventClick,
+  onClusterClick,
+  mapLayers,
+  setMapLayers,
+  activeHub,
+  setActiveHub,
+  activeRouteData,
+  selectedRouteIndex,
+  onSelectRouteIndex,
+  hotspotSettings,
+  setHotspotSettings
+}) {
+  const map = useMap();
   const [bounds, setBounds] = useState(null);
-  const [zoom, setZoom] = useState(5);
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const [zoom, setZoom] = useState(INITIAL_ZOOM);
 
-  const initialViewState = {
-    longitude: 8.6753,
-    latitude: 9.0820,
-    zoom: 5
-  };
+  // Sync bounds and zoom on map idle
+  React.useEffect(() => {
+    if (!map || !window.google?.maps) return;
 
-  const handleZoomOut = () => {
-    mapRef.current?.flyTo({
-      center: [initialViewState.longitude, initialViewState.latitude],
-      zoom: initialViewState.zoom,
-      duration: 800
-    });
-  };
+    const updateBoundsAndZoom = () => {
+      const b = map.getBounds();
+      if (b) {
+        const sw = b.getSouthWest();
+        const ne = b.getNorthEast();
+        setBounds([sw.lng(), sw.lat(), ne.lng(), ne.lat()]);
+      }
+      const z = map.getZoom();
+      if (typeof z === 'number') {
+        setZoom(z);
+      }
+    };
 
-  const handleMapMove = () => {
-    if (mapRef.current) {
-      const b = mapRef.current.getMap().getBounds().toArray().flat();
-      setBounds(b);
-      setZoom(mapRef.current.getMap().getZoom());
+    updateBoundsAndZoom();
+    const listener = map.addListener('idle', updateBoundsAndZoom);
+    return () => {
+      window.google.maps.event.removeListener(listener);
+    };
+  }, [map]);
+
+  const handleResetView = () => {
+    if (map) {
+      map.panTo(INITIAL_CENTER);
+      map.setZoom(INITIAL_ZOOM);
     }
   };
 
+  const activeHubObj = useMemo(() => 
+    hubs.find(h => h.id === activeHub), 
+    [hubs, activeHub]
+  );
+
+  // Map of incidents within current active route corridor for highlighting
+  const { corridorIncidentIds, corridorIncidentMap } = useMemo(() => {
+    const ids = new Set();
+    const mapObj = {};
+    const selectedRoute = activeRouteData?.routes?.[selectedRouteIndex];
+    if (selectedRoute?.exposure?.corridorIncidents) {
+      for (const inc of selectedRoute.exposure.corridorIncidents) {
+        const id = inc.event_id || inc.id;
+        ids.add(id);
+        mapObj[id] = inc;
+      }
+    }
+    return { corridorIncidentIds: ids, corridorIncidentMap: mapObj };
+  }, [activeRouteData, selectedRouteIndex]);
+
+  // Prepare GeoJSON points for Supercluster
   const points = useMemo(() => {
     return events.map(event => ({
-      type: "Feature",
-      properties: { cluster: false, eventId: event.event_id || event.id, category: 'event', event },
+      type: 'Feature',
+      properties: { 
+        cluster: false, 
+        eventId: event.event_id || event.id, 
+        category: 'event', 
+        event 
+      },
       geometry: {
-        type: "Point",
+        type: 'Point',
         coordinates: [parseFloat(event.longitude), parseFloat(event.latitude)]
       }
     })).filter(p => !isNaN(p.geometry.coordinates[0]) && !isNaN(p.geometry.coordinates[1]));
@@ -109,174 +114,212 @@ export default function MapArea({ events, hubs, onEventClick, onClusterClick, ma
   const { clusters, supercluster } = useSupercluster({
     points,
     bounds,
-    zoom,
-    options: { radius: 40, maxZoom: 20 }
+    zoom: Math.round(zoom),
+    options: { radius: 45, maxZoom: 18 }
   });
 
-  const activeHubObj = useMemo(() => hubs.find(h => h.id === activeHub), [hubs, activeHub]);
-
-  const incidentMarkers = mapLayers?.incidents ? clusters.map(cluster => {
-    const [longitude, latitude] = cluster.geometry.coordinates;
-    const { cluster: isCluster, point_count: pointCount } = cluster.properties;
-
-    if (isCluster) {
-      return (
-        <Marker key={`cluster-${cluster.id}`} latitude={latitude} longitude={longitude}>
-          <div
-            className="flex items-center justify-center bg-green-600/90 text-white rounded-full border border-white shadow-xl cursor-pointer hover:bg-green-500 transition-colors tutorial-step-2"
-            style={{
-              width: `${Math.min(40 + (pointCount / points.length) * 40, 80)}px`,
-              height: `${Math.min(40 + (pointCount / points.length) * 40, 80)}px`
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              const leaves = supercluster.getLeaves(cluster.id, Infinity).map(l => l.properties.event);
-              if (onClusterClick) onClusterClick(leaves);
-            }}
-          >
-            <span className="font-bold text-sm">{pointCount}</span>
-          </div>
-        </Marker>
-      );
-    }
-
-    return (
-      <Marker
-        key={`event-${cluster.properties.eventId}`}
-        longitude={longitude}
-        latitude={latitude}
-        anchor="center"
-      >
-        <CustomMarker event={cluster.properties.event} onClick={onEventClick} activeHubObj={activeHubObj} />
-      </Marker>
-    );
-  }) : null;
-
-  const hubMarkers = mapLayers?.hubs ? hubs.map((hub) => {
-    const lat = parseFloat(hub.latitude);
-    const lng = parseFloat(hub.longitude);
-    if (isNaN(lat) || isNaN(lng)) return null;
-
-    return (
-      <Marker
-        key={`hub-${hub.id}`}
-        longitude={lng}
-        latitude={lat}
-        anchor="center"
-      >
-        <div 
-          onMouseEnter={() => setActiveHub(hub.id)}
-          onMouseLeave={() => setActiveHub(null)}
-          className="cursor-pointer"
-        >
-          <HubMarker hub={hub} isActive={activeHub === hub.id} />
-        </div>
-      </Marker>
-    );
-  }) : null;
-
-  const bufferGeoJSON = useMemo(() => {
-    if (!mapLayers?.proximity || !activeHubObj) return turf.featureCollection([]);
-    
-    const lat = parseFloat(activeHubObj.latitude);
-    const lng = parseFloat(activeHubObj.longitude);
-    if (isNaN(lat) || isNaN(lng)) return turf.featureCollection([]);
-
-    const pt = turf.point([lng, lat]);
-    const buffer = turf.buffer(pt, 5, { units: 'kilometers' });
-    return turf.featureCollection([buffer]);
-  }, [activeHubObj, mapLayers?.proximity]);
-
-  const heatmapGeoJSON = useMemo(() => {
-    if (!mapLayers?.hotspots) return turf.featureCollection([]);
-    return turf.featureCollection(points);
-  }, [points, mapLayers?.hotspots]);
-
   return (
-    <div className="flex-1 h-screen relative bg-gray-900 z-10">
+    <>
+      {/* Map Layer Controls Panel */}
       {mapLayers && setMapLayers && (
-        <MapLayerControls mapLayers={mapLayers} setMapLayers={setMapLayers} />
+        <MapLayerControls 
+          mapLayers={mapLayers} 
+          setMapLayers={setMapLayers}
+          hotspotSettings={hotspotSettings}
+          setHotspotSettings={setHotspotSettings}
+        />
       )}
 
-      <Map
-        ref={mapRef}
-        initialViewState={initialViewState}
-        mapStyle="mapbox://styles/mapbox/dark-v11"
-        mapboxAccessToken={MAPBOX_TOKEN}
-        style={{ width: '100%', height: '100%' }}
-        interactiveLayerIds={[]}
-        onMove={handleMapMove}
-        onLoad={(e) => {
-          setMapLoaded(true);
-          handleMapMove();
-        }}
+      {/* Reset View Button */}
+      <button
+        onClick={handleResetView}
+        className="absolute bottom-8 left-4 z-20 bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-xl border border-gray-800 text-white shadow-xl hover:bg-gray-800 transition-colors text-sm font-medium flex items-center gap-2 tutorial-step-4"
+        title="Reset map view to default Nigeria center"
       >
-        <button
-          onClick={handleZoomOut}
-          className="absolute bottom-8 left-4 z-20 bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-800 text-white shadow-xl hover:bg-gray-800 transition-colors text-sm font-medium flex items-center gap-2 tutorial-step-4"
+        <RotateCcw className="w-4 h-4 text-cyan-400" />
+        Reset View
+      </button>
+
+      {/* Proximity Buffer Circle Layer */}
+      <ProximityCircleLayer
+        activeHubObj={activeHubObj}
+        enabled={Boolean(mapLayers?.proximity)}
+        radiusMeters={5000}
+      />
+
+      {/* Heatmap Layer */}
+      <HeatmapLayer
+        events={events}
+        enabled={Boolean(mapLayers?.hotspots)}
+        timeHorizon={hotspotSettings?.timeHorizon || 'all'}
+        weightedBySeverity={hotspotSettings?.weightedBySeverity ?? true}
+      />
+
+      {/* Route Polylines */}
+      {activeRouteData?.routes && activeRouteData.routes.length > 0 && (
+        <RoutePolylineLayer
+          routes={activeRouteData.routes}
+          selectedRouteIndex={selectedRouteIndex}
+          onSelectRoute={onSelectRouteIndex}
+        />
+      )}
+
+      {/* Operational Hub Markers */}
+      {mapLayers?.hubs && hubs.map((hub) => {
+        const lat = parseFloat(hub.latitude);
+        const lng = parseFloat(hub.longitude);
+        if (isNaN(lat) || isNaN(lng)) return null;
+
+        return (
+          <AdvancedMarker
+            key={`hub-${hub.id}`}
+            position={{ lat, lng }}
+            zIndex={activeHub === hub.id ? 30 : 20}
+          >
+            <div 
+              onMouseEnter={() => setActiveHub(hub.id)}
+              onMouseLeave={() => setActiveHub(null)}
+            >
+              <HubMarker 
+                hub={hub} 
+                isActive={activeHub === hub.id} 
+                onSelect={() => setActiveHub(activeHub === hub.id ? null : hub.id)}
+              />
+            </div>
+          </AdvancedMarker>
+        );
+      })}
+
+      {/* Incident Markers & Clusters */}
+      {mapLayers?.incidents && clusters.map((cluster) => {
+        const [longitude, latitude] = cluster.geometry.coordinates;
+        const { cluster: isCluster, point_count: pointCount } = cluster.properties;
+
+        if (isCluster) {
+          const size = Math.min(36 + (pointCount / points.length) * 44, 72);
+          return (
+            <AdvancedMarker
+              key={`cluster-${cluster.id}`}
+              position={{ lat: latitude, lng: longitude }}
+              zIndex={25}
+            >
+              <div
+                className="flex items-center justify-center bg-emerald-600/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-emerald-500 hover:scale-110 transition-all tutorial-step-2"
+                style={{
+                  width: `${size}px`,
+                  height: `${size}px`
+                }}
+                onClick={(e) => {
+                  e.stopPropagation?.();
+                  const leaves = supercluster.getLeaves(cluster.id, Infinity).map(l => l.properties.event);
+                  if (onClusterClick) onClusterClick(leaves);
+
+                  // Expand cluster on zoom
+                  const expansionZoom = Math.min(
+                    supercluster.getClusterExpansionZoom(cluster.id),
+                    17
+                  );
+                  map?.panTo({ lat: latitude, lng: longitude });
+                  map?.setZoom(expansionZoom);
+                }}
+                title={`Cluster of ${pointCount} security incidents. Click to inspect or zoom.`}
+              >
+                <span className="font-bold text-xs">{pointCount}</span>
+              </div>
+            </AdvancedMarker>
+          );
+        }
+
+        const currentEvent = cluster.properties.event;
+        const eventId = cluster.properties.eventId;
+        const isInCorridor = corridorIncidentIds.has(eventId);
+        const corridorInfo = corridorIncidentMap[eventId];
+
+        return (
+          <AdvancedMarker
+            key={`event-${eventId}`}
+            position={{ lat: latitude, lng: longitude }}
+            zIndex={isInCorridor ? 40 : 15}
+          >
+            <IncidentMarker 
+              event={currentEvent} 
+              onClick={onEventClick} 
+              activeHubObj={activeHubObj}
+              isInRouteCorridor={isInCorridor}
+              distanceToRouteKm={corridorInfo?.distanceToRouteKm}
+            />
+          </AdvancedMarker>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Main MapArea component wrapped in Google Maps APIProvider.
+ */
+export default function MapArea({ 
+  events, 
+  hubs, 
+  onEventClick, 
+  onClusterClick, 
+  mapLayers, 
+  setMapLayers, 
+  activeHub, 
+  setActiveHub,
+  activeRouteData,
+  selectedRouteIndex = 0,
+  onSelectRouteIndex,
+  hotspotSettings,
+  setHotspotSettings
+}) {
+  if (!GOOGLE_MAPS_API_KEY) {
+    return (
+      <div className="flex-1 h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-6">
+        <AlertCircle className="w-12 h-12 text-yellow-500 mb-3" />
+        <h2 className="text-lg font-bold">Google Maps API Key Missing</h2>
+        <p className="text-gray-400 text-sm max-w-md text-center mt-1">
+          Please define <code className="text-blue-400">VITE_GOOGLE_MAPS_API_KEY</code> in your environment variables.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 h-screen relative bg-gray-950 z-10">
+      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['places', 'visualization', 'geometry']}>
+        <Map
+          defaultCenter={INITIAL_CENTER}
+          defaultZoom={INITIAL_ZOOM}
+          mapId={GOOGLE_MAP_ID}
+          styles={darkMapStyles}
+          disableDefaultUI={false}
+          zoomControl={true}
+          mapTypeControl={false}
+          scaleControl={true}
+          streetViewControl={false}
+          rotateControl={false}
+          fullscreenControl={true}
+          gestureHandling="greedy"
+          style={{ width: '100%', height: '100%' }}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-          Reset View
-        </button>
-
-        <NavigationControl position="bottom-right" />
-        
-        {/* Proximity Buffer Layer */}
-        {mapLoaded && bufferGeoJSON.features.length > 0 && (
-          <Source id="active-buffer" type="geojson" data={bufferGeoJSON}>
-            <Layer 
-              id="active-buffer-fill"
-              type="fill"
-              paint={{
-                'fill-color': '#eab308',
-                'fill-opacity': 0.15,
-                'fill-outline-color': '#ca8a04'
-              }}
-            />
-            <Layer 
-              id="active-buffer-outline"
-              type="line"
-              paint={{
-                'line-color': '#ca8a04',
-                'line-width': 2,
-                'line-dasharray': [2, 2]
-              }}
-            />
-          </Source>
-        )}
-
-        {/* Heatmap Layer */}
-        {mapLoaded && mapLayers?.hotspots && heatmapGeoJSON.features.length > 0 && (
-          <Source id="heatmap" type="geojson" data={heatmapGeoJSON}>
-            <Layer 
-              id="heatmap-layer"
-              type="heatmap"
-              paint={{
-                'heatmap-weight': 1,
-                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
-                'heatmap-color': [
-                  'interpolate',
-                  ['linear'],
-                  ['heatmap-density'],
-                  0, 'rgba(0,0,0,0)',
-                  0.2, '#2563eb', // blue
-                  0.4, '#b91c1c', // red
-                  0.6, '#ea580c', // orange
-                  0.8, '#eab308', // yellow
-                  1, '#fef08a' // light yellow
-                ],
-                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 15, 9, 40],
-                'heatmap-opacity': 0.8
-              }}
-            />
-          </Source>
-        )}
-
-        {hubMarkers}
-        {incidentMarkers}
-      </Map>
+          <MapContent
+            events={events}
+            hubs={hubs}
+            onEventClick={onEventClick}
+            onClusterClick={onClusterClick}
+            mapLayers={mapLayers}
+            setMapLayers={setMapLayers}
+            activeHub={activeHub}
+            setActiveHub={setActiveHub}
+            activeRouteData={activeRouteData}
+            selectedRouteIndex={selectedRouteIndex}
+            onSelectRouteIndex={onSelectRouteIndex}
+            hotspotSettings={hotspotSettings}
+            setHotspotSettings={setHotspotSettings}
+          />
+        </Map>
+      </APIProvider>
     </div>
   );
 }

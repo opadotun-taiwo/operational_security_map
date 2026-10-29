@@ -18,12 +18,14 @@ OneSecure is a React-based web application that visualizes security events and m
 
 ## ✨ Features
 
-- **Live Interactive Map:** Utilizes Mapbox GL to plot real-time security events and organizational hubs.
-- **Proximity Alerts:** Automatically calculates distances (using Turf.js) to flag security events happening within a 5km radius of operational hubs.
-- **Smart Clustering:** Groups nearby security events dynamically at higher zoom levels using Supercluster for clean data visualization.
-- **Advanced Filtering:** Filter incidents by Severity, Event Type, State, Date Range, or specifically view threats near operational hubs.
-- **Guided Tutorial:** Built-in onboarding flow for new users using `react-joyride`.
-- **Supabase Integration:** Real-time or polled data fetching from a PostgreSQL backend.
+- **Google Maps Platform Core:** High-performance, cyber-security dark-themed vector road map built with `@vis.gl/react-google-maps`.
+- **Integrated Route Planning & Corridor Exposure:** Driving route computation via Google Routes API (and Supabase Edge Function), with dynamic corridor threat calculation (2km, 5km, 10km, 25km) comparing alternative routes against recorded security incidents.
+- **Explainable Threat Auditing:** Transparent risk scores incorporating incident severity, casualties, verification status, and recency, accompanied by data-freshness and uncertainty disclaimers.
+- **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5km of One Acre Fund operational hubs.
+- **Security Hotspot Zones:** Google Maps visualization heatmap with configurable time-horizons (All Time, 90 Days, 30 Days) and severity weighting.
+- **Smart Incident Clustering:** Hierarchical clustering using Supercluster to cleanly aggregate dense incident markers.
+- **Advanced Multi-Dimensional Filtering:** Filter incidents by Severity, Verification Status, Event Type, State, and Date Range.
+- **Supabase Backend & Edge Functions:** Real-time PostgreSQL database with Edge Functions for secure server-side Google Routes API processing.
 
 ---
 
@@ -39,8 +41,8 @@ Ensure you have the following installed on your local machine:
 - **Git**
 
 You will also need accounts/API keys for:
-- [Supabase](https://supabase.com/) (Database)
-- [Mapbox](https://www.mapbox.com/) (Maps & Geospatial data)
+- [Supabase](https://supabase.com/) (Database & Edge Functions)
+- [Google Maps Platform](https://console.cloud.google.com/) (Maps JavaScript API & Routes API)
 
 ### 1. Clone the Repository
 
@@ -59,12 +61,42 @@ npm install
 
 ### 3. Environment Variables Setup
 
-Create a `.env` file in the root directory of the project and add your API keys. You will need your Supabase URL, Supabase Anon Key, and Mapbox Access Token.
+Create a `.env` file in the root directory of the project and add your API keys:
 
 ```env
-VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_MAPBOX_TOKEN=your_mapbox_public_token
+VITE_GOOGLE_MAPS_API_KEY=your_google_maps_browser_key
+VITE_GOOGLE_MAP_ID=DEMO_MAP_ID
+```
+
+For the Supabase Edge Function (`calculate-route`), configure the server secret:
+
+```bash
+supabase secrets set GOOGLE_MAPS_SERVER_KEY=your_google_maps_server_key
+```
+
+### 4. Required Google Cloud APIs to Enable
+
+Enable the following APIs in the [Google Cloud Console](https://console.cloud.google.com/apis/dashboard):
+1. **Maps JavaScript API** (Interactive map, visualization heatmap, controls)
+2. **Routes API** (`routes.googleapis.com` for driving directions and alternative routes)
+3. **Places API / Geocoding API** (For location search and address autocomplete)
+
+### 5. Running and Testing
+
+```bash
+# Run unit tests
+npm test
+
+# Run linter
+npm run lint
+
+# Build production bundle
+npm run build
+
+# Start local development server
+npm run dev
 ```
 
 ### 4. Database Schema Requirements (Supabase)
