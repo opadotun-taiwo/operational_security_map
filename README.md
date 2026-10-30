@@ -23,7 +23,7 @@ OneSecure is a React-based web application that visualizes security events and m
 - **Explainable Threat Auditing:** Transparent risk scores incorporating incident severity, casualties, verification status, and recency, accompanied by data-freshness and uncertainty disclaimers.
 - **Hub-Focused Map:** By default only incidents within 10 km of an operational hub are drawn (5 / 10 / 25 / 50 km or all, via **Show** in the top bar), with faint rings marking each hub's area. Incidents on a selected route's corridor are always shown.
 - **Route Alternatives on the Map:** Up to three driving routes, labelled A / B / C on the map and in the panel, with the selected route colored by corridor risk, alternatives in grey (click either to switch), Safest / Fastest tags and a plain-language recommendation.
-- **Incident Reporting (approved staff):** A **Report Incident** button lets approved GR staff add an incident to `security_events`. Reporters type their email, which is checked against an allow-list stored only as SHA-256 hashes (the addresses never appear in the page). The form adapts to the table's actual columns, and the location can be picked by clicking the map.
+- **Incident Reporting (approved staff):** A **Report Incident** button lets approved GR staff add incidents to `security_events`, either through a form or by uploading the downloadable CSV template (same columns as the table, previewed and validated row by row before saving). Reporters type their email, which is checked against an allow-list stored only as SHA-256 hashes (the addresses never appear in the page). Location is filled automatically, with coordinates, state, LGA and place name, from a Google place search, the reporter's current position or a click on the map; uploaded rows without coordinates are geocoded from their location. Requires the **Geocoding API** and **Places API (New)** on the Google key.
 - **Cluster Drill-down:** Clicking a cluster zooms in and draws each of its incidents at its exact location (same-spot reports are fanned out), with **View as list** and **Regroup** options.
 - **Guided Tour:** Runs on first visit; replay it any time with the **?** button.
 - **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5 km of One Acre Fund operational hubs in the **past 6 weeks**; older incidents no longer turn a hub red.
@@ -88,7 +88,7 @@ supabase secrets set GOOGLE_MAPS_SERVER_KEY=your_google_maps_server_key
 Enable the following APIs in the [Google Cloud Console](https://console.cloud.google.com/apis/dashboard):
 1. **Maps JavaScript API** (Interactive map, markers, controls)
 2. **Routes API** (`routes.googleapis.com` for driving directions and alternative routes; used from the browser and the Edge Function). The legacy Directions API is not used.
-3. **Places API / Geocoding API** (For location search and address autocomplete)
+3. **Geocoding API** and **Places API (New)** (incident report location search and address lookup; the legacy Places API is not used)
 
 ### 5. Running and Testing
 
@@ -131,26 +131,32 @@ To change who can report, update the hash lists in `src/services/incidentReports
 
 The application expects two primary tables in your Supabase database:
 
-1. **`security_events`**
-   - `id` (uuid/int)
-   - `latitude` (numeric/float)
-   - `longitude` (numeric/float)
-   - `date` (timestamp/date)
-   - `description` (text)
-   - `lga` (text)
-   - `state` (text)
-   - `severity` (text)
-   - `event_type` (text)
-   - `verification_status` (text) - e.g. `Verified`
-   - `fatalities`, `injured`, `abducted` (int)
-   - `location`, `source_url` (text) - optional
+1. **`security_events`**: one row per incident:
+
+   | Column | Example / allowed values |
+   |---|---|
+   | `event_id` | `EVT20220605001` (EVT + incident date + 3-digit sequence; generated for new reports) |
+   | `date` | `2022-06-05` |
+   | `state`, `lga`, `location` | `Ondo`, `Owo`, `St Francis Catholic Church, Owo` |
+   | `latitude`, `longitude` | `7.1903`, `5.5891` |
+   | `event_type` | e.g. Terrorist Attack, Banditry, Kidnapping, Armed Robbery |
+   | `severity` | Critical, High, Medium, Low |
+   | `description` | free text |
+   | `fatalities`, `injured`, `abducted` | whole numbers, `null` when unknown |
+   | `actors`, `source`, `source_url` | e.g. `Unknown gunmen`, `Reuters`, link |
+   | `source_date`, `reported_date` | dates (`reported_date` is set when a report is submitted) |
+   | `confidence` | High, Medium, Low |
+   | `verification_status` | Verified, Partially Verified, Unverified |
+   | `created_at` | set by the database |
+
+   Only incidents in **states that have an operational hub**, plus the **expansion states Jigawa, Gombe, Oyo and Kano** (`EXPANSION_STATES` in `src/utils/operatingStates.js`), are shown anywhere in the dashboard.
 
 2. **`one_acre_fund_locations`** (Hubs)
    - `id` (uuid/int)
    - `latitude` (numeric/float)
    - `longitude` (numeric/float)
    - `location_name` (text)
-   - `state` (text) - optional
+   - `state` (text): decides which states' incidents are shown (if empty, the state of the nearest incident within 50 km is used)
 
 ### 5. Start the Development Server
 

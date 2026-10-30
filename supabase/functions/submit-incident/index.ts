@@ -34,27 +34,32 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed. Use POST.' }, 405);
 
   try {
-    const { email, record } = await req.json();
+    const { email, record, records } = await req.json();
     const normalized = String(email || '').trim().toLowerCase();
 
     if (!AUTHORIZED_REPORTER_HASHES.has(await sha256Hex(normalized))) {
       return json({ error: 'This email is not authorised to submit incident reports.' }, 403);
     }
 
-    if (!record || typeof record !== 'object' || Array.isArray(record)) {
-      return json({ error: 'Missing incident record.' }, 400);
+    // Accepts one report (`record`, from the form) or many (`records`, from a CSV upload)
+    const batch = Array.isArray(records) ? records : record ? [record] : [];
+    if (batch.length === 0) return json({ error: 'Missing incident record.' }, 400);
+    if (batch.length > 500) return json({ error: 'Upload at most 500 incidents at a time.' }, 400);
+
+    for (const [i, r] of batch.entries()) {
+      const label = batch.length > 1 ? `Row ${i + 1}: ` : '';
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return json({ error: `${label}invalid incident record.` }, 400);
+      const lat = Number(r.latitude);
+      const lng = Number(r.longitude);
+      if (!(lat >= 3.5 && lat <= 14.5 && lng >= 2 && lng <= 15.5)) {
+        return json({ error: `${label}location must be inside Nigeria.` }, 400);
+      }
+      for (const required of ['event_id', 'date', 'state', 'lga', 'event_type', 'severity', 'description', 'source', 'confidence', 'verification_status']) {
+        if (!r[required]) return json({ error: `${label}${required} is required.` }, 400);
+      }
     }
 
-    const lat = Number(record.latitude);
-    const lng = Number(record.longitude);
-    if (!(lat >= 3.5 && lat <= 14.5 && lng >= 2 && lng <= 15.5)) {
-      return json({ error: 'Location must be inside Nigeria.' }, 400);
-    }
-    for (const required of ['date', 'event_type', 'severity', 'description']) {
-      if (!record[required]) return json({ error: `${required} is required.` }, 400);
-    }
-
-    const row = Object.fromEntries(Object.entries(record).filter(([key]) => !BLOCKED_COLUMNS.has(key)));
+    const rows = batch.map(r => Object.fromEntries(Object.entries(r).filter(([key]) => !BLOCKED_COLUMNS.has(key))));
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -68,7 +73,7 @@ Deno.serve(async (req: Request) => {
         'Authorization': `Bearer ${serviceKey}`,
         'Prefer': 'return=representation'
       },
-      body: JSON.stringify(row)
+      body: JSON.stringify(rows)
     });
 
     const data = await insert.json();
@@ -77,8 +82,9 @@ Deno.serve(async (req: Request) => {
       return json({ error: data?.message || 'Report could not be saved.' }, insert.status);
     }
 
-    console.log(`Incident report submitted by ${normalized}`);
-    return json({ incident: Array.isArray(data) ? data[0] : data });
+    console.log(`${rows.length} incident report(s) submitted by ${normalized}`);
+    const incidents = Array.isArray(data) ? data : [data];
+    return json({ incidents, incident: incidents[0] });
   } catch (err) {
     console.error('Unexpected error in submit-incident:', err);
     return json({ error: (err as Error).message || 'Internal server error' }, 500);

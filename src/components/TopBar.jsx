@@ -176,7 +176,7 @@ export default function TopBar({
               {HUB_RADIUS_OPTIONS.map(km => (
                 <option key={km} value={km}>Incidents within {km} km of hubs</option>
               ))}
-              <option value="all">All incidents</option>
+              <option value="all">All incidents in operating states</option>
             </select>
           </label>
         </div>

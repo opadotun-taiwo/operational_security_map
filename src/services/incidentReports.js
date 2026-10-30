@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { canonicalState } from '../utils/operatingStates';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -31,150 +32,314 @@ export async function isAuthorizedReporter(email) {
   return AUTHORIZED_REPORTER_HASHES.has(await sha256Hex(normalized));
 }
 
-/** Fields the dashboard reads from `security_events`, in form order. */
-export const INCIDENT_FIELDS = [
-  { key: 'date', label: 'Date of incident', type: 'date', required: true },
-  { key: 'event_type', label: 'Event type', type: 'text', required: true, list: 'eventTypes', placeholder: 'e.g. Kidnapping' },
-  { key: 'severity', label: 'Severity', type: 'select', required: true, options: ['Critical', 'High', 'Medium', 'Low'] },
-  { key: 'verification_status', label: 'Verification', type: 'select', options: ['Unverified', 'Verified'], defaultValue: 'Unverified' },
-  { key: 'state', label: 'State', type: 'text', required: true, list: 'states', placeholder: 'e.g. Niger' },
-  { key: 'lga', label: 'LGA', type: 'text', placeholder: 'Local government area' },
-  { key: 'location', label: 'Location', type: 'text', placeholder: 'Town, village or road' },
-  { key: 'latitude', label: 'Latitude', type: 'number', required: true, step: 'any' },
-  { key: 'longitude', label: 'Longitude', type: 'number', required: true, step: 'any' },
-  { key: 'description', label: 'What happened?', type: 'textarea', required: true, placeholder: 'Describe the incident, who was affected and the source of the information.' },
-  { key: 'fatalities', label: 'Fatalities', type: 'integer', defaultValue: '0' },
-  { key: 'injured', label: 'Injured', type: 'integer', defaultValue: '0' },
-  { key: 'abducted', label: 'Abducted', type: 'integer', defaultValue: '0' },
-  { key: 'actors', label: 'Actors involved', type: 'text', placeholder: 'e.g. Armed bandits' },
-  { key: 'source_url', label: 'Source link', type: 'url', placeholder: 'https://' }
+// ---------------------------------------------------------------------------
+// security_events schema
+// ---------------------------------------------------------------------------
+
+/** Columns of security_events in table order (created_at is set by the database). */
+export const SCHEMA_COLUMNS = [
+  'event_id', 'date', 'state', 'lga', 'location', 'latitude', 'longitude', 'event_type', 'severity',
+  'description', 'fatalities', 'injured', 'abducted', 'actors', 'source', 'source_url', 'source_date',
+  'reported_date', 'confidence', 'verification_status'
 ];
 
-/** Columns filled by the database or by this module, never typed by the reporter. */
-const SYSTEM_COLUMNS = new Set(['id', 'event_id', 'created_at', 'updated_at', 'inserted_at']);
-const REPORTER_COLUMNS = ['reported_by', 'reporter_email', 'reporter', 'submitted_by', 'created_by'];
-const KNOWN_KEYS = new Set(INCIDENT_FIELDS.map(f => f.key));
+export const SEVERITY_OPTIONS = ['Critical', 'High', 'Medium', 'Low'];
+export const CONFIDENCE_OPTIONS = ['High', 'Medium', 'Low'];
+export const VERIFICATION_OPTIONS = ['Verified', 'Partially Verified', 'Unverified'];
+export const DEFAULT_EVENT_TYPES = [
+  'Armed Attack', 'Armed Robbery', 'Banditry', 'Civil Unrest', 'Communal Clash',
+  'Kidnapping', 'Security Operation', 'Terrorist Attack'
+];
 
-/**
- * Reads one existing incident to learn the table's real columns, so the form only
- * offers (and submits) fields that `security_events` actually has.
- *
- * @returns {Promise<{ columns: string[] | null, sample: Object | null }>} columns is null when unknown (empty table or error)
- */
-export async function fetchIncidentTableShape() {
-  const { data, error } = await supabase.from('security_events').select('*').limit(1);
-  if (error || !data?.length) return { columns: null, sample: null };
-  return { columns: Object.keys(data[0]), sample: data[0] };
-}
+/** Form/CSV field rules. `auto` fields are filled in when left blank. */
+export const INCIDENT_FIELDS = {
+  event_id: { label: 'Event ID', auto: true },
+  date: { label: 'Date of incident', type: 'date', required: true },
+  state: { label: 'State', required: true },
+  lga: { label: 'LGA', required: true },
+  location: { label: 'Location' },
+  latitude: { label: 'Latitude', type: 'number', required: true },
+  longitude: { label: 'Longitude', type: 'number', required: true },
+  event_type: { label: 'Event type', required: true },
+  severity: { label: 'Severity', required: true, options: SEVERITY_OPTIONS },
+  description: { label: 'Description', required: true },
+  fatalities: { label: 'Fatalities', type: 'integer' },
+  injured: { label: 'Injured', type: 'integer' },
+  abducted: { label: 'Abducted', type: 'integer' },
+  actors: { label: 'Actors' },
+  source: { label: 'Source', required: true },
+  source_url: { label: 'Source link', type: 'url' },
+  source_date: { label: 'Source date', type: 'date' },
+  reported_date: { label: 'Reported date', type: 'date', auto: true },
+  confidence: { label: 'Confidence', required: true, options: CONFIDENCE_OPTIONS },
+  verification_status: { label: 'Verification status', required: true, options: VERIFICATION_OPTIONS }
+};
 
-/**
- * Splits the table's columns into the known form fields and any extra columns.
- */
-export function describeFormFields(columns) {
-  if (!columns) return { fields: INCIDENT_FIELDS, extraColumns: [] };
-  const present = new Set(columns);
-  const fields = INCIDENT_FIELDS.filter(f => present.has(f.key) || f.key === 'latitude' || f.key === 'longitude');
-  const extraColumns = columns.filter(c => !KNOWN_KEYS.has(c) && !SYSTEM_COLUMNS.has(c) && !REPORTER_COLUMNS.includes(c));
-  return { fields, extraColumns };
-}
+const EVENT_ID_PATTERN = /^EVT\d{8}\d{3,}$/;
 
-function emptyToNull(value) {
+const isoDate = (time) => new Date(time).toISOString().slice(0, 10);
+
+/** Blank, whitespace and the literal "null" (as exported by Supabase) are empty. */
+function clean(value) {
   if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
-  return trimmed === '' ? null : trimmed;
+  return trimmed === '' || trimmed.toLowerCase() === 'null' ? null : trimmed;
+}
+
+/** Accepts YYYY-MM-DD, DD/MM/YYYY and Excel-style dates; returns YYYY-MM-DD or null. */
+export function normalizeDate(value) {
+  const v = clean(value);
+  if (!v) return null;
+  let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = v.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); // Nigerian convention: day first
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return null;
+}
+
+function validDate(iso) {
+  if (!iso) return false;
+  const d = new Date(`${iso}T00:00:00Z`);
+  return !isNaN(d) && isoDate(d) === iso;
 }
 
 /**
- * Validates form values and builds the row to insert.
+ * Next free event ID for an incident date, following the table's EVT<YYYYMMDD><NNN> format.
+ * `takenIds` is updated so a batch never reuses an ID.
+ */
+export function nextEventId(date, takenIds) {
+  const prefix = `EVT${date.replace(/-/g, '')}`;
+  let max = 0;
+  for (const id of takenIds) {
+    if (typeof id === 'string' && id.startsWith(prefix)) {
+      const seq = parseInt(id.slice(prefix.length), 10);
+      if (seq > max) max = seq;
+    }
+  }
+  const id = `${prefix}${String(max + 1).padStart(3, '0')}`;
+  takenIds.add(id);
+  return id;
+}
+
+function matchOption(value, options) {
+  return options.find(o => o.toLowerCase() === value.toLowerCase()) || null;
+}
+
+/**
+ * Validates one incident (from the form or a CSV row) and builds the row to insert.
  *
- * @param {Object} values - Raw form values keyed by column
+ * @param {Object} values - Raw values keyed by column name
  * @param {Object} options
- * @param {string[] | null} options.columns - Known table columns (null = unknown)
- * @param {Object | null} options.sample - An existing row, used to match value types
- * @param {string} options.reporterEmail
+ * @param {string[]} [options.operatingStates] - Allowed state names; others are rejected
+ * @param {Set<string>} [options.takenIds] - Existing event IDs (updated with the new ID)
+ * @param {string[] | null} [options.columns] - Live table columns, when known
  * @param {number} [options.now]
  * @returns {{ record: Object | null, errors: Object<string, string> }}
  */
-export function buildIncidentRecord(values, { columns = null, sample = null, reporterEmail = '', now = Date.now() } = {}) {
+export function buildIncidentRecord(values, { operatingStates = null, takenIds = new Set(), columns = null, now = Date.now() } = {}) {
   const errors = {};
-  const { fields, extraColumns } = describeFormFields(columns);
   const record = {};
+  const today = isoDate(now);
 
-  for (const field of fields) {
-    const raw = emptyToNull(values[field.key]);
-    if (field.required && raw === null) {
-      errors[field.key] = `${field.label} is required`;
+  for (const [key, field] of Object.entries(INCIDENT_FIELDS)) {
+    if (field.auto) continue;
+    const raw = clean(values[key]);
+    if (raw === null) {
+      if (field.required) errors[key] = `${field.label} is required`;
       continue;
     }
-    if (raw === null) continue;
 
     if (field.type === 'number' || field.type === 'integer') {
-      const num = Number(raw);
-      if (!Number.isFinite(num) || (field.type === 'integer' && (!Number.isInteger(num) || num < 0))) {
-        errors[field.key] = field.type === 'integer' ? `${field.label} must be a whole number` : `${field.label} must be a number`;
-        continue;
-      }
-      record[field.key] = num;
-    } else if (field.type === 'url') {
-      if (!/^https?:\/\/\S+\.\S+/i.test(raw)) {
-        errors[field.key] = 'Enter a full link starting with http:// or https://';
-        continue;
-      }
-      record[field.key] = raw;
-    } else {
-      record[field.key] = raw;
-    }
-  }
-
-  if (!errors.latitude && !errors.longitude && record.latitude !== undefined && record.longitude !== undefined) {
-    const inNigeria = record.latitude >= 3.5 && record.latitude <= 14.5 && record.longitude >= 2 && record.longitude <= 15.5;
-    if (!inNigeria) errors.latitude = 'Location must be inside Nigeria (latitude 3.5–14.5, longitude 2–15.5)';
-  }
-
-  if (record.date && new Date(record.date).getTime() > now + 24 * 60 * 60 * 1000) {
-    errors.date = 'Date cannot be in the future';
-  }
-
-  for (const column of extraColumns) {
-    const raw = emptyToNull(values[column]);
-    if (raw === null) continue;
-    const sampleValue = sample?.[column];
-    if (typeof sampleValue === 'number') {
-      const num = Number(raw);
+      const num = Number(raw.replace(/,/g, ''));
       if (!Number.isFinite(num)) {
-        errors[column] = `${column} must be a number`;
-        continue;
+        errors[key] = `${field.label} must be a number`;
+      } else if (field.type === 'integer' && (!Number.isInteger(num) || num < 0)) {
+        errors[key] = `${field.label} must be a whole number (0 or more)`;
+      } else {
+        record[key] = num;
       }
-      record[column] = num;
-    } else if (typeof sampleValue === 'boolean') {
-      record[column] = raw === 'true';
+    } else if (field.type === 'date') {
+      const iso = normalizeDate(raw);
+      if (!validDate(iso)) errors[key] = `${field.label} must be a date like 2026-10-30`;
+      else if (iso > today) errors[key] = `${field.label} cannot be in the future`;
+      else record[key] = iso;
+    } else if (field.type === 'url') {
+      if (!/^https?:\/\/\S+\.\S+/i.test(raw)) errors[key] = 'Source link must start with http:// or https://';
+      else record[key] = raw;
+    } else if (field.options) {
+      const option = matchOption(raw, field.options);
+      if (!option) errors[key] = `${field.label} must be one of: ${field.options.join(', ')}`;
+      else record[key] = option;
     } else {
-      record[column] = raw;
+      record[key] = raw;
     }
   }
 
-  // Text incident IDs are not generated by the database; numeric ones usually are
-  if (columns?.includes('event_id') && typeof sample?.event_id === 'string') {
-    record.event_id = `OAF-${new Date(now).toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  if (record.latitude !== undefined && record.longitude !== undefined) {
+    const inNigeria = record.latitude >= 3.5 && record.latitude <= 14.5 && record.longitude >= 2 && record.longitude <= 15.5;
+    if (!inNigeria) errors.latitude = 'Coordinates must be inside Nigeria (latitude 3.5–14.5, longitude 2–15.5)';
   }
 
-  const reporterColumn = columns?.find(c => REPORTER_COLUMNS.includes(c));
-  if (reporterColumn && reporterEmail) record[reporterColumn] = normalizeEmail(reporterEmail);
+  if (record.state && operatingStates?.length) {
+    const match = operatingStates.find(s => canonicalState(s) === canonicalState(record.state));
+    if (match) record.state = match;
+    else errors.state = `${record.state} is not an operating state (${operatingStates.join(', ')})`;
+  }
 
-  return { record: Object.keys(errors).length ? null : record, errors };
+  if (record.source_date && record.date && record.source_date < record.date) {
+    errors.source_date = 'Source date cannot be before the incident date';
+  }
+
+  // Event ID: keep a supplied one if valid and unused, otherwise generate the next in sequence
+  const suppliedId = clean(values.event_id);
+  if (suppliedId) {
+    if (!EVENT_ID_PATTERN.test(suppliedId)) errors.event_id = 'Event ID must look like EVT20260130001 (or leave it blank)';
+    else if (takenIds.has(suppliedId)) errors.event_id = `Event ID ${suppliedId} already exists`;
+  }
+
+  if (Object.keys(errors).length) return { record: null, errors };
+
+  if (suppliedId) {
+    record.event_id = suppliedId;
+    takenIds.add(suppliedId);
+  } else {
+    record.event_id = nextEventId(record.date, takenIds);
+  }
+
+  const reportedDate = normalizeDate(values.reported_date);
+  record.reported_date = validDate(reportedDate) && reportedDate <= today ? reportedDate : today;
+
+  if (columns) {
+    for (const key of Object.keys(record)) if (!columns.includes(key)) delete record[key];
+  }
+
+  return { record: Object.fromEntries(SCHEMA_COLUMNS.filter(k => k in record).map(k => [k, record[k]])), errors };
+}
+
+/** Reads the live table's column names from one row (null when unavailable). */
+export async function fetchIncidentColumns() {
+  const { data, error } = await supabase.from('security_events').select('*').limit(1);
+  if (error || !data?.length) return null;
+  return Object.keys(data[0]);
+}
+
+// ---------------------------------------------------------------------------
+// CSV template and upload
+// ---------------------------------------------------------------------------
+
+export const TEMPLATE_EXAMPLE_ID = 'EXAMPLE - delete this row';
+
+const TEMPLATE_EXAMPLE = {
+  event_id: TEMPLATE_EXAMPLE_ID,
+  date: '2026-10-28',
+  state: 'Niger',
+  lga: 'Chanchaga',
+  location: 'Kure Market, Minna',
+  latitude: '9.5920',
+  longitude: '6.5241',
+  event_type: 'Armed Robbery',
+  severity: 'High',
+  description: 'Armed men robbed traders at Kure Market in the early evening. Two traders were injured.',
+  fatalities: '0',
+  injured: '2',
+  abducted: '0',
+  actors: 'Armed robbers',
+  source: 'OAF field staff',
+  source_url: '',
+  source_date: '2026-10-28',
+  reported_date: '',
+  confidence: 'Medium',
+  verification_status: 'Unverified'
+};
+
+function csvCell(value) {
+  const s = value === undefined || value === null ? '' : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function toCsv(rows, columns) {
+  const lines = [columns.join(',')];
+  for (const row of rows) lines.push(columns.map(c => csvCell(row[c])).join(','));
+  return lines.join('\r\n') + '\r\n';
+}
+
+/** CSV template with the security_events columns and one example row. */
+export function buildTemplateCsv() {
+  return toCsv([TEMPLATE_EXAMPLE], SCHEMA_COLUMNS);
+}
+
+/** RFC 4180 CSV parser (quoted fields, escaped quotes, CRLF, UTF-8 BOM). */
+export function parseCsv(text) {
+  const input = String(text || '').replace(/^﻿/, '');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (inQuotes) {
+      if (ch === '"' && input[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else field += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(field); field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && input[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else {
+      field += ch;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(cell => cell.trim() !== ''));
 }
 
 /**
- * Saves a report. Uses the `submit-incident` Edge Function when it is deployed (it
- * re-checks the email server-side); otherwise inserts directly, which only works if
- * the table's row-level security allows it.
+ * Turns an uploaded CSV into incident value objects keyed by column.
  *
- * @returns {Promise<Object>} The inserted row
+ * @returns {{ rows: Array<{ line: number, values: Object }>, missingColumns: string[], unknownColumns: string[] }}
  */
-export async function submitIncidentReport(record, reporterEmail) {
+export function readIncidentCsv(text) {
+  const table = parseCsv(text);
+  if (table.length === 0) return { rows: [], missingColumns: SCHEMA_COLUMNS, unknownColumns: [] };
+
+  const headers = table[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const required = Object.entries(INCIDENT_FIELDS)
+    .filter(([key, f]) => f.required && key !== 'latitude' && key !== 'longitude')
+    .map(([key]) => key);
+  const missingColumns = required.filter(c => !headers.includes(c));
+  const unknownColumns = headers.filter(h => h && !SCHEMA_COLUMNS.includes(h) && h !== 'created_at');
+
+  const rows = [];
+  table.slice(1).forEach((cells, i) => {
+    const values = {};
+    headers.forEach((h, j) => { if (SCHEMA_COLUMNS.includes(h)) values[h] = cells[j] ?? ''; });
+    if (String(values.event_id || '').startsWith('EXAMPLE')) return; // template example row
+    rows.push({ line: i + 2, values });
+  });
+  return { rows, missingColumns, unknownColumns };
+}
+
+// ---------------------------------------------------------------------------
+// Saving
+// ---------------------------------------------------------------------------
+
+/**
+ * Saves one or more reports. Uses the `submit-incident` Edge Function when it is
+ * deployed (it re-checks the email server-side); otherwise inserts directly, which
+ * only works if the table's row-level security allows it.
+ *
+ * @param {Array<Object>} records
+ * @returns {Promise<Array<Object>>} The inserted rows
+ */
+export async function submitIncidentReports(records, reporterEmail) {
   if (!(await isAuthorizedReporter(reporterEmail))) {
     throw new Error('This email is not authorised to submit incident reports.');
   }
+  if (!records.length) return [];
 
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     let response = null;
@@ -186,7 +351,7 @@ export async function submitIncidentReport(record, reporterEmail) {
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           'apikey': SUPABASE_ANON_KEY
         },
-        body: JSON.stringify({ email: normalizeEmail(reporterEmail), record })
+        body: JSON.stringify({ email: normalizeEmail(reporterEmail), records })
       });
     } catch {
       response = null; // Function unreachable: fall back to a direct insert
@@ -195,16 +360,19 @@ export async function submitIncidentReport(record, reporterEmail) {
     if (response && response.status !== 404) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Report could not be saved (error ${response.status}).`);
-      return body.incident;
+      return body.incidents || (body.incident ? [body.incident] : records);
     }
   }
 
-  const { data, error } = await supabase.from('security_events').insert(record).select().single();
+  const { data, error } = await supabase.from('security_events').insert(records).select();
   if (error) {
     if (error.code === '42501' || /row-level security|permission/i.test(error.message)) {
       throw new Error('The database refused the report. An administrator needs to deploy the submit-incident function or allow inserts on security_events (see README).');
     }
+    if (error.code === '23505') {
+      throw new Error('An incident with the same Event ID already exists. Refresh the page and try again.');
+    }
     throw new Error(`Report could not be saved: ${error.message}`);
   }
-  return data;
+  return data || records;
 }

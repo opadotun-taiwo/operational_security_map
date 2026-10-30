@@ -10,13 +10,15 @@ import Tutorial from './components/Tutorial';
 import ReportIncidentPanel from './components/ReportIncidentPanel';
 import { Loader2 } from 'lucide-react';
 import { annotateHubThreats } from './utils/hubThreats';
+import { getOperatingStates, isInOperatingStates, canonicalState } from './utils/operatingStates';
 
 // Default map scope: only incidents in the operating area around hubs are drawn
 const DEFAULT_HUB_RADIUS_KM = 10;
 
 function App() {
-  const [events, setEvents] = useState([]);
-  const [hubs, setHubs] = useState([]);
+  // Raw rows from Supabase; `events`/`hubs` below are the derived, annotated versions
+  const [rawEvents, setRawEvents] = useState([]);
+  const [rawHubs, setRawHubs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -75,10 +77,10 @@ function App() {
       if (eventsResponse.error) throw eventsResponse.error;
       if (hubsResponse.error) throw hubsResponse.error;
 
-      const annotated = annotateHubThreats(eventsResponse.data || [], hubsResponse.data || []);
-      setHubs(annotated.hubs);
-      setEvents(annotated.events);
-      return annotated.events;
+      const loaded = { events: eventsResponse.data || [], hubs: hubsResponse.data || [] };
+      setRawEvents(loaded.events);
+      setRawHubs(loaded.hubs);
+      return loaded;
     } catch (err) {
       console.error('Error fetching data:', err);
       setError(err.message);
@@ -92,6 +94,14 @@ function App() {
     // State is only set after the fetch resolves, never synchronously in the effect
     Promise.resolve().then(loadData);
   }, [loadData]);
+
+  // Only incidents in hub states plus the expansion states are shown anywhere in the app
+  const operatingStates = useMemo(() => getOperatingStates(rawHubs, rawEvents), [rawHubs, rawEvents]);
+  const { events, hubs } = useMemo(
+    () => annotateHubThreats(rawEvents.filter(e => isInOperatingStates(e, operatingStates)), rawHubs),
+    [rawEvents, rawHubs, operatingStates]
+  );
+  const existingEventIds = useMemo(() => rawEvents.map(e => e.event_id).filter(Boolean), [rawEvents]);
 
   const uniqueStates = useMemo(() => {
     const states = new Set(events.map(e => e.state).filter(Boolean));
@@ -120,7 +130,7 @@ function App() {
         (event.verification_status || '').toLowerCase() === filters.verificationStatus.toLowerCase();
 
       const stateMatch = filters.state === 'All' || 
-        event.state === filters.state;
+        canonicalState(event.state) === canonicalState(filters.state);
 
       const eventDate = event.date ? new Date(event.date) : null;
       let dateMatch = true;
@@ -209,6 +219,7 @@ function App() {
           hubRadiusKm={filters.hubRadiusKm}
           includesRouteCorridor={Boolean(selectedCorridorIncidents?.length)}
           onShowAll={() => setFilters(f => ({ ...f, hubRadiusKm: 'all' }))}
+          operatingStates={operatingStates}
           isAnyHubThreatened={isAnyHubThreatened}
           threateningEvents={threateningEvents}
           onEventClick={(event) => {
@@ -305,19 +316,27 @@ function App() {
                 setPickedLocation(null);
               }}
               hubs={hubs}
-              states={uniqueStates}
+              states={operatingStates.all}
               eventTypes={uniqueEventTypes}
+              existingEventIds={existingEventIds}
               isPickingLocation={isPickingLocation}
               onStartPicking={() => setIsPickingLocation(p => !p)}
               pickedLocation={pickedLocation}
-              onSubmitted={async (saved) => {
+              onSubmitted={async (savedRows) => {
+                const rows = (Array.isArray(savedRows) ? savedRows : [savedRows]).filter(Boolean);
                 const refreshed = await loadData();
-                const id = saved?.event_id || saved?.id;
-                const match = refreshed?.find(e => id !== undefined && (e.event_id || e.id) === id);
-                if (id !== undefined) setReportedIds(ids => [...ids, id]);
+                const ids = rows.map(r => r.event_id || r.id).filter(id => id !== undefined);
+                setReportedIds(prev => [...prev, ...ids]);
                 setPickedLocation(null);
-                setFocusRequest({ lat: parseFloat(saved.latitude), lng: parseFloat(saved.longitude), at: Date.now() });
-                if (match) setSelectedEvent(match);
+                if (rows.length === 0) return;
+                // Single report: open it. Bulk upload: fly to the first one.
+                const first = rows[0];
+                setFocusRequest({ lat: parseFloat(first.latitude), lng: parseFloat(first.longitude), at: Date.now() });
+                if (rows.length === 1) {
+                  const annotated = refreshed ? annotateHubThreats(refreshed.events, refreshed.hubs).events : [];
+                  const match = annotated.find(e => (e.event_id || e.id) === ids[0]);
+                  if (match) setSelectedEvent(match);
+                }
               }}
             />
           ) : selectedEvent ? (
