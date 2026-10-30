@@ -1,7 +1,7 @@
 import React from 'react';
 import { Home } from 'lucide-react';
 
-export default function HubMarker({ hub, isActive, onSelect }) {
+export default function HubMarker({ hub, isActive }) {
   const isThreatened = hub.isThreatened;
   const colorClass = isThreatened ? 'bg-red-500' : 'bg-emerald-600';
   const pulseClass = isThreatened ? 'bg-red-400' : 'bg-emerald-400';
@@ -10,10 +10,6 @@ export default function HubMarker({ hub, isActive, onSelect }) {
   return (
     <div 
       className={`relative flex flex-col items-center justify-center cursor-pointer select-none transition-transform ${activeClass}`}
-      onClick={(e) => {
-        e.stopPropagation?.();
-        onSelect?.(hub);
-      }}
     >
       <span className={`text-white bg-black/85 px-2 py-0.5 rounded text-xs font-bold whitespace-nowrap mb-1 shadow-lg transition-opacity ${
         isActive ? 'opacity-100 ring-1 ring-white/40' : 'opacity-85'

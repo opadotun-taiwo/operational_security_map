@@ -12,6 +12,8 @@ import HubMarker from './HubMarker';
 import RoutePolylineLayer from './RoutePolylineLayer';
 import ProximityCircleLayer from './ProximityCircleLayer';
 import HeatmapLayer from './HeatmapLayer';
+import HubAreaLayer from './HubAreaLayer';
+import RouteMapOverlays from './RouteMapOverlays';
 import MapLayerControls from './MapLayerControls';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCSl0cp_JRq0RiSbxh0WCUYS1OzKnZCeK4';
@@ -28,6 +30,7 @@ const INITIAL_ZOOM = 6;
 function MapContent({
   events,
   hubs,
+  hubRadiusKm,
   onEventClick,
   onClusterClick,
   mapLayers,
@@ -116,8 +119,29 @@ function MapContent({
     points,
     bounds,
     zoom: Math.round(zoom),
-    options: { radius: 45, maxZoom: 18 }
+    options: { radius: 60, maxZoom: 16 }
   });
+
+  // Open the incident list for a cluster and zoom so it splits into its members
+  const handleClusterClick = (clusterId) => {
+    if (!supercluster) return;
+    const leaves = supercluster.getLeaves(clusterId, Infinity).map(l => l.properties.event);
+    onClusterClick?.(leaves);
+
+    if (!map || !window.google?.maps) return;
+    const clusterBounds = new window.google.maps.LatLngBounds();
+    leaves.forEach(e => clusterBounds.extend({ lat: parseFloat(e.latitude), lng: parseFloat(e.longitude) }));
+    const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(clusterId), 17);
+    // Keep the zoomed area clear of the incident list that opens on the right
+    const wide = map.getDiv().offsetWidth >= 900;
+    map.fitBounds(clusterBounds, wide ? { top: 100, right: 440, bottom: 100, left: 100 } : 60);
+    window.google.maps.event.addListenerOnce(map, 'idle', () => {
+      // Always zoom far enough for the cluster to split, but not excessively
+      const z = map.getZoom() ?? 0;
+      if (z < expansionZoom) map.setZoom(expansionZoom);
+      else if (z > expansionZoom + 1) map.setZoom(expansionZoom + 1);
+    });
+  };
 
   return (
     <>
@@ -128,6 +152,7 @@ function MapContent({
           setMapLayers={setMapLayers}
           hotspotSettings={hotspotSettings}
           setHotspotSettings={setHotspotSettings}
+          hubRadiusKm={hubRadiusKm}
         />
       )}
 
@@ -140,6 +165,13 @@ function MapContent({
         <RotateCcw className="w-4 h-4 text-green-400" />
         Reset View
       </button>
+
+      {/* Hub operating-area rings (the area whose incidents are shown) */}
+      <HubAreaLayer
+        hubs={hubs}
+        radiusKm={hubRadiusKm}
+        enabled={Boolean(mapLayers?.proximity) && Boolean(mapLayers?.hubs)}
+      />
 
       {/* Proximity Buffer Circle Layer */}
       <ProximityCircleLayer
@@ -164,6 +196,11 @@ function MapContent({
           onSelectRoute={onSelectRouteIndex}
         />
       )}
+      <RouteMapOverlays
+        activeRouteData={activeRouteData}
+        selectedRouteIndex={selectedRouteIndex}
+        onSelectRoute={onSelectRouteIndex}
+      />
 
       {/* Operational Hub Markers */}
       {mapLayers?.hubs && hubs.map((hub) => {
@@ -176,17 +213,10 @@ function MapContent({
             key={`hub-${hub.id}`}
             position={{ lat, lng }}
             zIndex={activeHub === hub.id ? 30 : 20}
+            onClick={() => setActiveHub(activeHub === hub.id ? null : hub.id)}
+            title={`${hub.location_name || 'Hub'}: click to ${activeHub === hub.id ? 'hide' : 'show'} its 5 km alert zone`}
           >
-            <div 
-              onMouseEnter={() => setActiveHub(hub.id)}
-              onMouseLeave={() => setActiveHub(null)}
-            >
-              <HubMarker 
-                hub={hub} 
-                isActive={activeHub === hub.id} 
-                onSelect={() => setActiveHub(activeHub === hub.id ? null : hub.id)}
-              />
-            </div>
+            <HubMarker hub={hub} isActive={activeHub === hub.id} />
           </AdvancedMarker>
         );
       })}
@@ -197,33 +227,21 @@ function MapContent({
         const { cluster: isCluster, point_count: pointCount } = cluster.properties;
 
         if (isCluster) {
-          const size = Math.min(36 + (pointCount / points.length) * 44, 72);
+          const size = Math.min(28 + Math.log2(pointCount) * 5, 52);
           return (
             <AdvancedMarker
               key={`cluster-${cluster.id}`}
               position={{ lat: latitude, lng: longitude }}
               zIndex={25}
+              onClick={() => handleClusterClick(cluster.id)}
+              title={`${pointCount} incidents here. Click to list them and zoom in.`}
             >
               <div
-                className="flex items-center justify-center bg-green-700/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-green-600 hover:scale-110 transition-all tutorial-step-2"
+                className="flex items-center justify-center bg-green-700/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-green-600 hover:scale-110 transition-all"
                 style={{
                   width: `${size}px`,
                   height: `${size}px`
                 }}
-                onClick={(e) => {
-                  e.stopPropagation?.();
-                  const leaves = supercluster.getLeaves(cluster.id, Infinity).map(l => l.properties.event);
-                  if (onClusterClick) onClusterClick(leaves);
-
-                  // Expand cluster on zoom
-                  const expansionZoom = Math.min(
-                    supercluster.getClusterExpansionZoom(cluster.id),
-                    17
-                  );
-                  map?.panTo({ lat: latitude, lng: longitude });
-                  map?.setZoom(expansionZoom);
-                }}
-                title={`Cluster of ${pointCount} security incidents. Click to inspect or zoom.`}
               >
                 <span className="font-bold text-xs">{pointCount}</span>
               </div>
@@ -240,11 +258,11 @@ function MapContent({
           <AdvancedMarker
             key={`event-${eventId}`}
             position={{ lat: latitude, lng: longitude }}
-            zIndex={isInCorridor ? 40 : 15}
+            zIndex={isInCorridor ? 40 : 22}
+            onClick={() => onEventClick?.(currentEvent)}
           >
             <IncidentMarker 
               event={currentEvent} 
-              onClick={onEventClick} 
               activeHubObj={activeHubObj}
               isInRouteCorridor={isInCorridor}
               distanceToRouteKm={corridorInfo?.distanceToRouteKm}
@@ -262,6 +280,7 @@ function MapContent({
 export default function MapArea({ 
   events, 
   hubs, 
+  hubRadiusKm,
   onEventClick, 
   onClusterClick, 
   mapLayers, 
@@ -287,7 +306,7 @@ export default function MapArea({
   }
 
   return (
-    <div className="absolute inset-0 bg-gray-950 z-10" style={{ backgroundColor: '#111827' }}>
+    <div className="absolute inset-0 bg-gray-950 z-10 tutorial-map" style={{ backgroundColor: '#111827' }}>
       <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['places', 'geometry', 'routes']}>
         <Map
           defaultCenter={INITIAL_CENTER}
@@ -308,6 +327,7 @@ export default function MapArea({
           <MapContent
             events={events}
             hubs={hubs}
+            hubRadiusKm={hubRadiusKm}
             onEventClick={onEventClick}
             onClusterClick={onClusterClick}
             mapLayers={mapLayers}

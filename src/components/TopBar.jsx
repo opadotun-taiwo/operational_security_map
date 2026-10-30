@@ -1,13 +1,17 @@
 import React from 'react';
-import { Activity, Navigation } from 'lucide-react';
+import { Activity, Navigation, HelpCircle } from 'lucide-react';
+
+const HUB_RADIUS_OPTIONS = [5, 10, 25, 50];
 
 export default function TopBar({ 
   filters, 
   setFilters, 
   states, 
+  eventTypes = [],
   isRoutePanelOpen, 
   setIsRoutePanelOpen,
-  hasActiveRoute = false
+  hasActiveRoute = false,
+  onShowHelp
 }) {
   return (
     <div className="w-full bg-gray-900 border-b border-gray-800 z-30 shadow-md">
@@ -32,12 +36,12 @@ export default function TopBar({
         {/* Route Intelligence Toggle Button */}
         <button
           onClick={() => setIsRoutePanelOpen(!isRoutePanelOpen)}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
+          className={`tutorial-route flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
             isRoutePanelOpen
               ? 'bg-green-600 text-white shadow-green-600/25 ring-2 ring-green-400'
               : 'bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 border border-gray-700'
           }`}
-          title="Toggle Route Planning and Threat Exposure Analysis"
+          title="Plan a trip and compare routes by security exposure"
         >
           <Navigation size={14} className={isRoutePanelOpen ? 'text-white' : 'text-green-400'} />
           <span>Route Intelligence</span>
@@ -45,6 +49,17 @@ export default function TopBar({
             <span className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
           )}
         </button>
+
+        {onShowHelp && (
+          <button
+            onClick={onShowHelp}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700 transition-colors"
+            title="Show the guided tour"
+            aria-label="Show the guided tour"
+          >
+            <HelpCircle size={16} />
+          </button>
+        )}
 
         {/* Filters Area */}
         <div className="flex flex-wrap items-center gap-3 flex-1 tutorial-step-1">
@@ -84,10 +99,9 @@ export default function TopBar({
             className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-green-500"
           >
             <option value="All">All Event Types</option>
-            <option value="Terrorist Attack">Terrorist Attack</option>
-            <option value="Kidnapping">Kidnapping</option>
-            <option value="Armed Robbery">Armed Robbery</option>
-            <option value="Civil Unrest">Civil Unrest</option>
+            {eventTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
           </select>
 
           {/* Verification Status Filter */}
@@ -134,19 +148,20 @@ export default function TopBar({
             />
           </div>
 
-          {/* Near Hubs Filter */}
-          <div className="flex items-center gap-2 ml-auto">
-            <input 
-              type="checkbox"
-              id="hubFilterTop"
-              checked={filters.showOnlyNearHubs}
-              onChange={(e) => setFilters({ ...filters, showOnlyNearHubs: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-green-600 focus:ring-green-500 focus:ring-offset-gray-900"
-            />
-            <label htmlFor="hubFilterTop" className="text-xs font-medium text-gray-300 cursor-pointer select-none whitespace-nowrap">
-              Near Hubs (&le;5km)
-            </label>
-          </div>
+          {/* Map scope: incidents around hubs */}
+          <label className="flex items-center gap-2 ml-auto text-xs text-gray-400 tutorial-hub-scope" title="Hide incidents far from your operational hubs to keep the map readable">
+            <span className="whitespace-nowrap">Show:</span>
+            <select
+              value={String(filters.hubRadiusKm)}
+              onChange={(e) => setFilters({ ...filters, hubRadiusKm: e.target.value === 'all' ? 'all' : Number(e.target.value) })}
+              className="bg-gray-800 border border-green-700/60 rounded-lg px-2.5 py-1 text-xs text-white font-medium focus:outline-none focus:border-green-500"
+            >
+              {HUB_RADIUS_OPTIONS.map(km => (
+                <option key={km} value={km}>Incidents within {km} km of hubs</option>
+              ))}
+              <option value="all">All incidents</option>
+            </select>
+          </label>
         </div>
         
       </div>

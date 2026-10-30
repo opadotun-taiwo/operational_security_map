@@ -96,6 +96,7 @@ async function computeRoutesClientSide({ origin, destination, computeAlternative
       distanceMeters: r.distanceMeters,
       distanceText: formatDistance(r.distanceMeters),
       durationText: formatDuration(durationSeconds),
+      durationSeconds,
       coordinates: (r.path || []).map(readLatLng),
       rawRoute: r
     };
@@ -193,6 +194,7 @@ export async function calculateRoute({
               distanceMeters: r.distanceMeters,
               distanceText: formatDistance(r.distanceMeters),
               durationText: formatDuration(r.duration),
+              durationSeconds: parseInt(String(r.duration || '').replace('s', ''), 10) || null,
               coordinates,
               rawRoute: r
             };
@@ -229,6 +231,7 @@ export async function calculateRoute({
               distanceMeters: Math.round(r.distance),
               distanceText: formatDistance(r.distance),
               durationText: formatDuration(r.duration),
+              durationSeconds: r.duration,
               coordinates,
               rawRoute: r
             };
@@ -274,6 +277,7 @@ export async function calculateRoute({
       distanceMeters: distMeters,
       distanceText: formatDistance(distMeters),
       durationText: formatDuration(estSeconds),
+      durationSeconds: estSeconds,
       coordinates,
       rawRoute: null
     };

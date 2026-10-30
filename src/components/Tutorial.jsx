@@ -1,17 +1,27 @@
 import React from 'react';
 import { Joyride, STATUS } from 'react-joyride';
 
-export default function Tutorial() {
+function hasSeenTutorial() {
+  try {
+    return Boolean(localStorage.getItem('hasSeenMapTutorial'));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Guided tour. Runs automatically on a first visit; `restartToken` changes replay it.
+ */
+export default function Tutorial({ restartToken = 0 }) {
   const [run, setRun] = React.useState(false);
 
   React.useEffect(() => {
-    // Check if the user has seen the tutorial before
-    const hasSeenTutorial = localStorage.getItem('hasSeenMapTutorial');
-    if (!hasSeenTutorial) {
-      // Small delay to let map load and render components
-      setTimeout(() => setRun(true), 2000);
-    }
-  }, []);
+    const isReplay = restartToken > 0;
+    if (!isReplay && hasSeenTutorial()) return undefined;
+    // On first visit wait for the map and its components to render
+    const timer = setTimeout(() => setRun(true), isReplay ? 0 : 2000);
+    return () => clearTimeout(timer);
+  }, [restartToken]);
 
   const handleJoyrideCallback = (data) => {
     const { status } = data;
@@ -19,64 +29,67 @@ export default function Tutorial() {
 
     if (finishedStatuses.includes(status)) {
       setRun(false);
-      localStorage.setItem('hasSeenMapTutorial', 'true');
+      try {
+        localStorage.setItem('hasSeenMapTutorial', 'true');
+      } catch {
+        // Storage unavailable (private mode); the tour may show again next visit
+      }
     }
   };
 
   const steps = [
     {
       target: '.tutorial-step-1', // TopBar filters
-      content: 'Welcome! Use these filters to narrow down incidents by severity, type, or date.',
+      content: 'Narrow down incidents by severity, type, verification, state or date.',
       placement: 'bottom',
-      disableBeacon: true,
     },
     {
-      target: '.tutorial-step-2', // Map Clusters
-      content: 'Click on a numbered cluster to see a list of all incidents in that area.',
-      placement: 'right',
+      target: '.tutorial-hub-scope',
+      content: 'To keep the map readable, only incidents near your operational hubs are shown. Widen the range here, or choose "All incidents".',
+      placement: 'bottom',
+    },
+    {
+      target: '.tutorial-map',
+      content: 'Green numbered circles group nearby incidents. Click one to list them and zoom in. Click a single dot for full details, or a hub to see its 5 km alert zone.',
+      placement: 'center',
+    },
+    {
+      target: '.tutorial-route',
+      content: 'Plan a trip between hubs or any coordinates. Up to three driving routes are compared, labelled A, B and C on the map, with the safest and fastest highlighted.',
+      placement: 'bottom',
     },
     {
       target: '.tutorial-step-3', // Map Layers
-      content: 'Use this panel to toggle map layers, such as heatmaps or proximity zones. You can also hide it when not needed.',
+      content: 'Turn map layers on or off, such as hub areas or the hotspot heatmap, and read the legend. Click this button to hide the panel.',
       placement: 'left',
     },
     {
       target: '.tutorial-step-4', // Reset View
-      content: 'Lost? Click here at any time to reset your view to the default zoom and location.',
+      content: 'Lost? Click here at any time to return to the default view of Nigeria.',
       placement: 'top',
     }
   ];
 
+  // react-joyride v3 API: onEvent / options (v2's callback, showSkipButton and
+  // disableBeacon are ignored, which left the tour stuck as an unopened beacon)
   return (
     <Joyride
       steps={steps}
       run={run}
       continuous={true}
       scrollToFirstStep={false}
-      showProgress={true}
-      showSkipButton={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          zIndex: 10000,
-          primaryColor: '#3b82f6', // blue-500
-          backgroundColor: '#1f2937', // gray-800
-          textColor: '#f3f4f6', // gray-100
-          arrowColor: '#1f2937',
-        },
-        buttonClose: {
-          color: '#9ca3af', // gray-400
-        },
-        buttonNext: {
-          backgroundColor: '#2563eb', // blue-600
-        },
-        buttonBack: {
-          color: '#9ca3af',
-        },
-        tooltip: {
-          borderRadius: '0.75rem',
-          padding: '1.5rem',
-        }
+      onEvent={handleJoyrideCallback}
+      options={{
+        skipBeacon: true,
+        showProgress: true,
+        buttons: ['back', 'skip', 'primary'],
+        zIndex: 10000,
+        primaryColor: '#16a34a', // green-600
+        backgroundColor: '#1f2937', // gray-800
+        textColor: '#f3f4f6', // gray-100
+        arrowColor: '#1f2937',
+        overlayColor: 'rgba(3, 7, 18, 0.6)',
+        width: 340
       }}
     />
   );

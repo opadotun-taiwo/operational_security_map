@@ -4,7 +4,6 @@ import * as turf from '@turf/turf';
 
 export default function IncidentMarker({
   event,
-  onClick,
   activeHubObj,
   isInRouteCorridor = false,
   distanceToRouteKm = null
@@ -35,10 +34,6 @@ export default function IncidentMarker({
       className={`relative flex items-center justify-center cursor-pointer group select-none ${
         isInRouteCorridor ? 'z-40' : isNearActiveHub ? 'z-30' : 'z-10'
       }`}
-      onClick={(e) => {
-        e.stopPropagation?.();
-        onClick?.(event);
-      }}
       title={`${event.event_type || 'Incident'} (${event.severity || 'Unknown'}) - ${event.location || event.state || ''}`}
     >
       {/* Route Corridor Highlight Ring */}

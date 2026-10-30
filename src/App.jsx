@@ -9,6 +9,10 @@ import TopBar from './components/TopBar';
 import Tutorial from './components/Tutorial';
 import { Loader2 } from 'lucide-react';
 import * as turf from '@turf/turf';
+import { nearestHub } from './utils/routeComparison';
+
+// Default map scope: only incidents in the operating area around hubs are drawn
+const DEFAULT_HUB_RADIUS_KM = 10;
 
 function App() {
   const [events, setEvents] = useState([]);
@@ -18,6 +22,8 @@ function App() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedClusterEvents, setSelectedClusterEvents] = useState(null);
   const [activeHub, setActiveHub] = useState(null);
+  const [tutorialRestart, setTutorialRestart] = useState(0);
+  const [isMobileStatusOpen, setIsMobileStatusOpen] = useState(false);
 
   // Layer toggles
   const [mapLayers, setMapLayers] = useState({
@@ -45,7 +51,7 @@ function App() {
     eventType: 'All',
     verificationStatus: 'All',
     state: 'All',
-    showOnlyNearHubs: false,
+    hubRadiusKm: DEFAULT_HUB_RADIUS_KM, // number (km) | 'all'
     dateFrom: '',
     dateTo: '',
   });
@@ -86,7 +92,7 @@ function App() {
               }
             }
           }
-          return { ...event, isNearHub, isRecent };
+          return { ...event, isNearHub, isRecent, ...nearestHub(event, rawHubs) };
         });
 
         const processedHubs = rawHubs.map(hub => {
@@ -125,6 +131,11 @@ function App() {
     return Array.from(states).sort();
   }, [events]);
 
+  const uniqueEventTypes = useMemo(() => {
+    const types = new Set(events.map(e => e.event_type).filter(Boolean));
+    return Array.from(types).sort();
+  }, [events]);
+
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
       const searchMatch = !filters.search || 
@@ -144,8 +155,6 @@ function App() {
       const stateMatch = filters.state === 'All' || 
         event.state === filters.state;
 
-      const nearHubMatch = !filters.showOnlyNearHubs || event.isNearHub;
-
       const eventDate = event.date ? new Date(event.date) : null;
       let dateMatch = true;
       if (eventDate) {
@@ -159,9 +168,22 @@ function App() {
         }
       }
 
-      return searchMatch && severityMatch && eventTypeMatch && verificationMatch && stateMatch && nearHubMatch && dateMatch;
+      return searchMatch && severityMatch && eventTypeMatch && verificationMatch && stateMatch && dateMatch;
     });
   }, [events, filters]);
+
+  // Incidents drawn on the map: those inside the hub operating area, plus any on the
+  // selected route's corridor (route analysis still uses every filtered incident).
+  const selectedCorridorIncidents = activeRouteData?.routes?.[selectedRouteIndex]?.exposure?.corridorIncidents;
+  const visibleEvents = useMemo(() => {
+    const inHubArea = filters.hubRadiusKm === 'all'
+      ? filteredEvents
+      : filteredEvents.filter(e => e.nearestHubKm !== null && e.nearestHubKm <= filters.hubRadiusKm);
+    if (!selectedCorridorIncidents?.length) return inHubArea;
+    const ids = new Set(inHubArea.map(e => e.event_id || e.id));
+    const corridorExtras = selectedCorridorIncidents.filter(e => !ids.has(e.event_id || e.id));
+    return [...inHubArea, ...corridorExtras];
+  }, [filteredEvents, filters.hubRadiusKm, selectedCorridorIncidents]);
 
   const threateningEvents = events.filter(e => e.isNearHub);
   const isAnyHubThreatened = threateningEvents.length > 0;
@@ -188,25 +210,42 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-950 text-white font-sans">
-      <Tutorial />
+      <Tutorial restartToken={tutorialRestart} />
       <TopBar 
         filters={filters} 
         setFilters={setFilters} 
         states={uniqueStates}
+        eventTypes={uniqueEventTypes}
         isRoutePanelOpen={isRoutePanelOpen}
         setIsRoutePanelOpen={setIsRoutePanelOpen}
         hasActiveRoute={Boolean(activeRouteData)}
+        onShowHelp={() => setTutorialRestart(n => n + 1)}
       />
       
       <div className="flex flex-1 overflow-hidden relative">
         <Sidebar 
-          events={filteredEvents}
+          events={visibleEvents}
+          totalFilteredCount={filteredEvents.length}
+          hubRadiusKm={filters.hubRadiusKm}
+          includesRouteCorridor={Boolean(selectedCorridorIncidents?.length)}
+          onShowAll={() => setFilters(f => ({ ...f, hubRadiusKm: 'all' }))}
           isAnyHubThreatened={isAnyHubThreatened}
           threateningEvents={threateningEvents}
-          onEventClick={setSelectedEvent}
+          onEventClick={(event) => {
+            setSelectedEvent(event);
+            setIsMobileStatusOpen(false);
+          }}
+          isMobileOpen={isMobileStatusOpen}
         />
         
-        <main className="flex-1 relative">
+        <main className="flex-1 relative min-w-0">
+          {/* Phones: the status sidebar is a toggle so the map keeps the screen */}
+          <button
+            onClick={() => setIsMobileStatusOpen(o => !o)}
+            className="md:hidden absolute bottom-20 left-4 z-30 bg-gray-900/95 border border-gray-700 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-xl"
+          >
+            {isMobileStatusOpen ? 'Show map' : `Status · ${visibleEvents.length} incidents`}
+          </button>
           {loading ? (
             <div className="absolute inset-0 z-30 bg-gray-950/80 flex items-center justify-center backdrop-blur-sm">
               <div className="flex flex-col items-center gap-4">
@@ -239,7 +278,8 @@ function App() {
           />
 
           <MapArea 
-            events={filteredEvents} 
+            events={visibleEvents}
+            hubRadiusKm={filters.hubRadiusKm}
             hubs={hubs}
             onEventClick={setSelectedEvent} 
             onClusterClick={setSelectedClusterEvents}
@@ -254,14 +294,18 @@ function App() {
             setHotspotSettings={setHotspotSettings}
           />
 
-          {!loading && filteredEvents.length === 0 && (
+          {!loading && visibleEvents.length === 0 && (
             <div className="absolute inset-0 z-[15] pointer-events-none flex items-center justify-center">
               <div className="bg-gray-900/90 backdrop-blur-md px-8 py-6 rounded-2xl border border-gray-800 flex flex-col items-center shadow-2xl">
                 <svg className="w-16 h-16 text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 <h3 className="text-lg font-bold text-white mb-1">No security events found</h3>
-                <p className="text-gray-400 text-sm">Try broadening your filter criteria</p>
+                <p className="text-gray-400 text-sm">
+                  {filters.hubRadiusKm === 'all' || filteredEvents.length === 0
+                    ? 'Try broadening your filter criteria'
+                    : `None within ${filters.hubRadiusKm} km of a hub. Widen the "Show" range in the top bar.`}
+                </p>
               </div>
             </div>
           )}

@@ -1,19 +1,17 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   Navigation, 
-  MapPin, 
   ArrowDownUp, 
   ShieldAlert, 
-  Sliders, 
   AlertTriangle, 
   RotateCcw, 
   ChevronRight, 
-  Clock, 
   Car,
   X
 } from 'lucide-react';
 import { calculateRoute } from '../services/routingService';
 import { calculateRouteExposure, validateCoordinates } from '../utils/routeExposure';
+import { compareRoutes, riskColor, routeLetter } from '../utils/routeComparison';
 
 export default function RoutePanel({
   hubs = [],
@@ -210,20 +208,16 @@ export default function RoutePanel({
   const selectedRoute = activeRouteData?.routes?.[selectedRouteIndex] || activeRouteData?.routes?.[0];
   const exposure = selectedRoute?.exposure;
 
-  // Recommend the route with the lowest corridor risk score (first route wins ties)
-  const recommendedRouteIndex = useMemo(() => {
-    const routes = activeRouteData?.routes || [];
-    let best = 0;
-    routes.forEach((r, idx) => {
-      if ((r.exposure?.riskScore ?? 0) < (routes[best].exposure?.riskScore ?? 0)) best = idx;
-    });
-    return best;
-  }, [activeRouteData]);
+  const comparison = useMemo(() => compareRoutes(activeRouteData?.routes || []), [activeRouteData]);
+  const sortedHubs = useMemo(
+    () => [...hubs].sort((a, b) => String(a.location_name || '').localeCompare(String(b.location_name || ''))),
+    [hubs]
+  );
 
   if (!isOpen) return null;
 
   return (
-    <div className="absolute top-4 left-4 z-40 w-full sm:w-[420px] max-h-[calc(100vh-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-md rounded-2xl border border-gray-800 shadow-2xl overflow-hidden transition-all duration-300">
+    <div className="absolute top-4 left-4 z-40 w-full sm:w-[420px] max-h-[calc(100%-2rem)] flex flex-col bg-gray-900/95 backdrop-blur-md rounded-2xl border border-gray-800 shadow-2xl overflow-hidden transition-all duration-300">
       
       {/* Panel Header */}
       <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-800/40">
@@ -261,7 +255,7 @@ export default function RoutePanel({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-gray-300">
               <span className="flex items-center gap-1.5 font-medium text-green-400">
-                <MapPin size={14} /> Origin (Departure)
+                <StepNumber n={1} /> Start from
               </span>
               <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
                 <button
@@ -288,7 +282,7 @@ export default function RoutePanel({
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
               >
                 <option value="">Select Operational Hub...</option>
-                {hubs.map(h => (
+                {sortedHubs.map(h => (
                   <option key={`orig-hub-${h.id}`} value={h.id}>
                     {h.location_name} ({h.state}) - {h.isThreatened ? '⚠️ Threatened' : '✓ Safe'}
                   </option>
@@ -332,7 +326,7 @@ export default function RoutePanel({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-gray-300">
               <span className="flex items-center gap-1.5 font-medium text-green-400">
-                <MapPin size={14} /> Destination (Arrival)
+                <StepNumber n={2} /> Going to
               </span>
               <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
                 <button
@@ -359,7 +353,7 @@ export default function RoutePanel({
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
               >
                 <option value="">Select Operational Hub...</option>
-                {hubs.map(h => (
+                {sortedHubs.map(h => (
                   <option key={`dest-hub-${h.id}`} value={h.id}>
                     {h.location_name} ({h.state}) - {h.isThreatened ? '⚠️ Threatened' : '✓ Safe'}
                   </option>
@@ -390,7 +384,8 @@ export default function RoutePanel({
           {/* Corridor Buffer Distance Selector */}
           <div className="pt-2 border-t border-gray-700/60 flex items-center justify-between text-xs">
             <span className="text-gray-400 flex items-center gap-1.5 font-medium">
-              <Sliders size={13} /> Threat Corridor Buffer:
+              <StepNumber n={3} />
+              <span title="Incidents within this distance of the road are counted as route threats">Check incidents within</span>
             </span>
             <div className="flex items-center gap-1">
               {[2, 5, 10, 25].map(dist => (
@@ -464,55 +459,70 @@ export default function RoutePanel({
               </div>
             )}
             
-            {/* Alternative Routes Switcher */}
+            {/* Plain-language recommendation */}
+            {!activeRouteData.isEstimate && comparison.summary && (
+              <div className="p-3.5 rounded-xl border border-green-500/30 bg-green-500/10 text-sm text-green-50 leading-relaxed flex items-start gap-2.5">
+                <ShieldAlert size={18} className="shrink-0 text-green-400 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-green-300 text-xs uppercase tracking-wider mb-0.5">Recommendation</p>
+                  <p>{comparison.summary}</p>
+                  {activeRouteData.routes.length > 1 && (
+                    <p className="text-xs text-green-200/70 mt-1">Click a route below or on the map to compare it.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Route alternatives (letters match the labels on the map) */}
             <div>
               <p className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-2">
-                Available Routes ({activeRouteData.routes.length})
+                {activeRouteData.routes.length > 1 ? `${activeRouteData.routes.length} route options` : '1 route option'}
               </p>
-              <div className="space-y-2">
+              <div className="space-y-2" role="radiogroup" aria-label="Route options">
                 {activeRouteData.routes.map((r, idx) => {
                   const isSelected = idx === selectedRouteIndex;
                   const routeExposure = r.exposure;
+                  const color = riskColor(routeExposure?.riskLevel);
+                  const isSafest = activeRouteData.routes.length > 1 && idx === comparison.safestIndex;
+                  const isFastest = activeRouteData.routes.length > 1 && idx === comparison.fastestIndex;
 
                   return (
-                    <div
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
                       key={r.id || `route-${idx}`}
                       onClick={() => onSelectRouteIndex?.(idx)}
-                      className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      className={`route-option w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3 ${
                         isSelected 
-                          ? 'bg-green-950/35 border-green-500 shadow-[0_0_15px_rgba(22,163,74,0.18)] ring-1 ring-green-500/50' 
-                          : 'bg-gray-800/40 border-gray-700 hover:bg-gray-800 hover:border-gray-600'
+                          ? 'bg-gray-800 border-white/70 ring-1 ring-white/40 shadow-lg' 
+                          : 'bg-gray-800/40 border-gray-700 hover:bg-gray-800 hover:border-gray-500'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-gray-600'}`} />
-                          <span className="font-bold text-white text-sm">{r.summary || `Route ${idx + 1}`}</span>
-                          {idx === recommendedRouteIndex && activeRouteData.routes.length > 1 && (
-                            <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.2 rounded border border-green-500/40" title="Lowest corridor risk score">
-                              RECOMMENDED
-                            </span>
-                          )}
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${routeExposure?.riskColor || 'text-gray-400'}`}>
-                          {routeExposure?.badgeLabel || 'ANALYZED'}
+                      <span
+                        className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-black text-gray-950"
+                        style={{ backgroundColor: isSelected ? color : '#cbd5e1' }}
+                      >
+                        {routeLetter(idx)}
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-white text-sm">{r.durationText}</span>
+                          <span className="text-gray-400 text-xs">· {r.distanceText}</span>
+                          {isSafest && <Tag className="bg-green-500/20 text-green-300 border-green-500/40">SAFEST</Tag>}
+                          {isFastest && <Tag className="bg-sky-500/20 text-sky-300 border-sky-500/40">FASTEST</Tag>}
+                          {isSelected && <Tag className="bg-white/10 text-white border-white/30">ON MAP</Tag>}
                         </span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs text-gray-400">
-                        <div className="flex items-center gap-3">
-                          <span className="flex items-center gap-1 text-gray-300">
-                            <Car size={13} className="text-gray-500" /> {r.distanceText}
+                        <span className="block text-xs text-gray-400 truncate mt-0.5" title={r.summary}>{r.summary || `Route ${idx + 1}`}</span>
+                        <span className="flex items-center gap-1.5 text-xs mt-1">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="text-gray-200 font-medium">
+                            {routeExposure?.totalCount || 0} incident{routeExposure?.totalCount === 1 ? '' : 's'} within {corridorBufferKm} km
                           </span>
-                          <span className="flex items-center gap-1 text-gray-300">
-                            <Clock size={13} className="text-gray-500" /> {r.durationText}
-                          </span>
-                        </div>
-                        <span className="text-xs font-semibold text-gray-300">
-                          {routeExposure?.totalCount || 0} threats in {corridorBufferKm}km
+                          <span className="text-gray-500">· {(routeExposure?.riskLevel || 'unknown').toLowerCase()} risk</span>
                         </span>
-                      </div>
-                    </div>
+                      </span>
+                    </button>
                   );
                 })}
               </div>
@@ -524,7 +534,7 @@ export default function RoutePanel({
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-white text-sm flex items-center gap-2">
                     <ShieldAlert size={16} className={exposure.riskScore >= 35 ? 'text-red-400' : 'text-green-400'} />
-                    Corridor Threat Profile
+                    Route {routeLetter(selectedRouteIndex)} threat profile
                   </h3>
                   <span className={`text-xs font-bold px-2.5 py-1 rounded-md border ${exposure.riskColor}`}>
                     Score: {exposure.riskScore}/100
@@ -631,5 +641,21 @@ export default function RoutePanel({
 
       </div>
     </div>
+  );
+}
+
+function StepNumber({ n }) {
+  return (
+    <span className="w-4 h-4 rounded-full bg-green-600 text-white text-[10px] font-bold inline-flex items-center justify-center shrink-0">
+      {n}
+    </span>
+  );
+}
+
+function Tag({ className, children }) {
+  return (
+    <span className={`text-[10px] font-bold px-1.5 py-px rounded border ${className}`}>
+      {children}
+    </span>
   );
 }

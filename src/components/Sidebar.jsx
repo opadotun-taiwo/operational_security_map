@@ -13,7 +13,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
   </div>
 );
 
-export default function Sidebar({ events, isAnyHubThreatened, threateningEvents, onEventClick }) {
+export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, includesRouteCorridor = false, onShowAll, isMobileOpen = false, isAnyHubThreatened, threateningEvents, onEventClick }) {
   const totalIncidents = events.length;
   const totalFatalities = events.reduce((sum, e) => sum + (e.fatalities || 0), 0);
   const totalInjured = events.reduce((sum, e) => sum + (e.injured || 0), 0);
@@ -21,7 +21,7 @@ export default function Sidebar({ events, isAnyHubThreatened, threateningEvents,
   const criticalCount = events.filter(e => e.severity?.toLowerCase() === 'critical').length;
 
   return (
-    <div className="w-full md:w-80 bg-gray-900 border-r border-gray-800 h-full flex flex-col z-20 shadow-2xl overflow-y-auto relative">
+    <div className={`${isMobileOpen ? 'absolute inset-0 flex' : 'hidden'} md:relative md:flex w-full md:w-80 shrink-0 bg-gray-900 border-r border-gray-800 h-full flex-col z-40 md:z-20 shadow-2xl overflow-y-auto`}>
       <div className="p-6 space-y-4">
         <h2 className="text-sm uppercase tracking-wider text-gray-500 font-bold mb-4">Live Status</h2>
         
@@ -62,7 +62,26 @@ export default function Sidebar({ events, isAnyHubThreatened, threateningEvents,
           </div>
         )}
 
-        <div className="pt-4 space-y-4">
+        <div className="pt-2">
+          <div className="text-xs text-gray-400 bg-gray-800/40 border border-gray-800 rounded-lg px-3 py-2 leading-relaxed">
+            {hubRadiusKm === 'all' ? (
+              <>Showing <span className="text-white font-semibold">all {totalIncidents}</span> incidents matching your filters.</>
+            ) : (
+              <>
+                Showing <span className="text-white font-semibold">{totalIncidents}</span> of {totalFilteredCount} incidents within{' '}
+                <span className="text-green-400 font-semibold">{hubRadiusKm} km of a hub</span>
+                {includesRouteCorridor && <> or on the selected route</>}.{' '}
+                {totalFilteredCount > totalIncidents && onShowAll && (
+                  <button onClick={onShowAll} className="text-green-400 hover:text-green-300 underline underline-offset-2">
+                    Show all
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="pt-2 space-y-4">
           <StatCard title="Total Incidents" value={totalIncidents} icon={Activity} colorClass="bg-green-600/20 text-green-400" />
           <StatCard title="Fatalities" value={totalFatalities} icon={Skull} colorClass="bg-red-500/20 text-red-400" />
           <StatCard title="Injured" value={totalInjured} icon={AlertCircle} colorClass="bg-orange-500/20 text-orange-400" />

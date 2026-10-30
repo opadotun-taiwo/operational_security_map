@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar, MapPin, Users, ExternalLink, ShieldAlert, CheckCircle } from 'lucide-react';
+import { X, Calendar, MapPin, Users, ExternalLink, ShieldAlert, CheckCircle, Home } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function DetailsPanel({ event, onClose }) {
@@ -8,7 +8,7 @@ export default function DetailsPanel({ event, onClose }) {
   const isCritical = event.severity?.toLowerCase() === 'critical';
 
   return (
-    <div className="absolute top-0 right-0 h-screen w-full sm:w-96 bg-gray-900 shadow-2xl border-l border-gray-800 z-50 transform transition-transform duration-300 ease-in-out flex flex-col">
+    <div className="absolute top-0 right-0 h-full w-full sm:w-96 bg-gray-900 shadow-2xl border-l border-gray-800 z-50 transform transition-transform duration-300 ease-in-out flex flex-col">
       <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           Event Details
@@ -16,6 +16,8 @@ export default function DetailsPanel({ event, onClose }) {
         <button 
           onClick={onClose}
           className="p-1 rounded-full hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+          aria-label="Close panel"
+          title="Close"
         >
           <X size={20} />
         </button>
@@ -44,7 +46,7 @@ export default function DetailsPanel({ event, onClose }) {
             <ShieldAlert className="text-red-500 shrink-0 mt-0.5" size={18} />
             <div>
               <p className="text-red-400 font-bold text-sm">Proximity Alert</p>
-              <p className="text-red-300 text-xs mt-0.5">This incident occurred within 5km of an Operational Hub.</p>
+              <p className="text-red-300 text-xs mt-0.5">This incident occurred within 5 km of an operational hub in the past 90 days.</p>
             </div>
           </div>
         )}
@@ -60,6 +62,14 @@ export default function DetailsPanel({ event, onClose }) {
             <MapPin size={18} className="text-gray-500" />
             <span>{event.lga ? `${event.lga}, ` : ''}{event.state || 'Unknown Location'}</span>
           </div>
+          {event.nearestHubKm !== null && event.nearestHubKm !== undefined && (
+            <div className="flex items-center text-gray-300 gap-3">
+              <Home size={18} className="text-gray-500" />
+              <span>
+                <span className="font-semibold text-white">{event.nearestHubKm} km</span> from {event.nearestHubName || 'the nearest'} hub
+              </span>
+            </div>
+          )}
           <div className="flex flex-col text-gray-300 gap-2">
             <div className="flex items-center gap-3">
               <Users size={18} className="text-gray-500" />

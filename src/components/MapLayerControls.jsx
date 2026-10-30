@@ -5,16 +5,18 @@ export default function MapLayerControls({
   mapLayers, 
   setMapLayers, 
   hotspotSettings, 
-  setHotspotSettings 
+  setHotspotSettings,
+  hubRadiusKm
 }) {
-  const [isOpen, setIsOpen] = React.useState(true);
+  // Start collapsed on phones so the panel doesn't cover the map
+  const [isOpen, setIsOpen] = React.useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   
   const toggleLayer = (layer) => {
     setMapLayers(prev => ({ ...prev, [layer]: !prev[layer] }));
   };
 
   return (
-    <div className="absolute top-4 right-4 z-20 flex flex-col gap-3 w-72 items-end max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar">
+    <div className="absolute top-4 right-4 z-20 flex flex-col gap-3 w-72 items-end max-h-[calc(100%-2rem)] overflow-y-auto custom-scrollbar">
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-800 shadow-xl text-white hover:bg-gray-800 transition-colors flex items-center justify-center tutorial-step-3"
@@ -46,7 +48,7 @@ export default function MapLayerControls({
               />
               <LayerToggle 
                 icon={<ShieldAlert className="w-4 h-4 text-yellow-400" />}
-                label="Proximity Zones (5km)" 
+                label={typeof hubRadiusKm === 'number' ? `Hub Areas (${hubRadiusKm} km) & Alert Zones` : 'Hub Alert Zones (5 km)'}
                 isActive={mapLayers.proximity} 
                 onClick={() => toggleLayer('proximity')} 
               />
@@ -132,7 +134,7 @@ export default function MapLayerControls({
                   <span className="absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-40 animate-ping" />
                   <div className="w-2 h-2 rounded-full border border-yellow-400 bg-gray-600 z-10" />
                 </div>
-                <span className="text-gray-300 text-[11px]">Recent (Past 7 Days)</span>
+                <span className="text-gray-300 text-[11px]">Recent (past 90 days)</span>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -140,6 +142,21 @@ export default function MapLayerControls({
                   <Route size={9} className="text-green-300" />
                 </div>
                 <span className="text-gray-300 text-[11px]">Active Route Corridor Threat</span>
+              </div>
+
+              <div className="h-px bg-gray-800 my-0.5" />
+
+              <div className="flex items-center gap-2.5">
+                <div className="w-3.5 h-1.5 rounded-full bg-gradient-to-r from-green-500 via-yellow-400 to-red-500 ring-2 ring-gray-950" />
+                <span className="text-gray-300 text-[11px]">Selected route (color = corridor risk)</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-3.5 h-1.5 rounded-full bg-slate-400" />
+                <span className="text-gray-300 text-[11px]">Alternative route (click to select)</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-3.5 h-3.5 rounded-full border border-green-500/70 bg-green-500/10" />
+                <span className="text-gray-300 text-[11px]">Hub area: incidents shown inside</span>
               </div>
 
               <div className="h-px bg-gray-800 my-0.5" />
@@ -155,7 +172,7 @@ export default function MapLayerControls({
                 <div className="w-3.5 h-3.5 rounded-full bg-red-500 border border-white flex items-center justify-center">
                   <Home className="w-2 h-2 text-white" />
                 </div>
-                <span className="text-gray-300 text-[11px]">Hub Threatened (&le;5km threat)</span>
+                <span className="text-gray-300 text-[11px]">Hub threatened (incident &le;5 km, past 90 days)</span>
               </div>
             </div>
           </div>

@@ -21,6 +21,9 @@ OneSecure is a React-based web application that visualizes security events and m
 - **Google Maps Platform Core:** High-performance, cyber-security dark-themed vector road map built with `@vis.gl/react-google-maps`.
 - **Integrated Route Planning & Corridor Exposure:** Driving route computation via the Google Routes API (Maps JavaScript API `Route.computeRoutes`, with a Supabase Edge Function and OSRM as fallbacks), with dynamic corridor threat calculation (2km, 5km, 10km, 25km) comparing alternative routes against recorded security incidents.
 - **Explainable Threat Auditing:** Transparent risk scores incorporating incident severity, casualties, verification status, and recency, accompanied by data-freshness and uncertainty disclaimers.
+- **Hub-Focused Map:** By default only incidents within 10 km of an operational hub are drawn (5 / 10 / 25 / 50 km or all, via **Show** in the top bar), with faint rings marking each hub's area. Incidents on a selected route's corridor are always shown.
+- **Route Alternatives on the Map:** Up to three driving routes, labelled A / B / C on the map and in the panel, with the selected route colored by corridor risk, alternatives in grey (click either to switch), Safest / Fastest tags and a plain-language recommendation.
+- **Guided Tour:** Runs on first visit; replay it any time with the **?** button.
 - **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5km of One Acre Fund operational hubs.
 - **Security Hotspot Zones:** Canvas heatmap overlay (Google removed `visualization.HeatmapLayer` in Maps JS v3.65) with configurable time-horizons (All Time, 90 Days, 30 Days) and severity weighting.
 - **Smart Incident Clustering:** Hierarchical clustering using Supercluster to cleanly aggregate dense incident markers.
