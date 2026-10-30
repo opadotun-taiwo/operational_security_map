@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Navigation, 
   MapPin, 
@@ -39,6 +39,8 @@ export default function RoutePanel({
   const [corridorBufferKm, setCorridorBufferKm] = useState(5);
   const [isCalculating, setIsCalculating] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  // Incremented per request so a slow, superseded calculation can't overwrite a newer one
+  const requestIdRef = useRef(0);
 
   const effectiveOriginHubId = selectedOriginHubId || (hubs[0]?.id ? String(hubs[0].id) : '');
   const effectiveDestHubId = selectedDestHubId || (hubs[1]?.id ? String(hubs[1].id) : '');
@@ -125,22 +127,28 @@ export default function RoutePanel({
       return;
     }
 
-    // Safety watchdog timer to guarantee the button cannot roll indefinitely
+    // Safety watchdog so the button cannot spin indefinitely. It must outlast the
+    // combined per-provider timeouts in calculateRoute (8s + 6s + 8s).
+    const requestId = ++requestIdRef.current;
     let watchdogTimer = null;
 
     try {
       setIsCalculating(true);
 
       watchdogTimer = setTimeout(() => {
+        if (requestIdRef.current !== requestId) return;
+        requestIdRef.current++;
         setIsCalculating(false);
         setErrorMessage('Route calculation took longer than expected. Please retry.');
-      }, 9000);
+      }, 30000);
 
       const result = await calculateRoute({
         origin: { lat: resolvedOrigin.lat, lng: resolvedOrigin.lng },
         destination: { lat: resolvedDest.lat, lng: resolvedDest.lng },
         computeAlternativeRoutes: true
       });
+
+      if (requestIdRef.current !== requestId) return;
 
       if (!result.routes || result.routes.length === 0) {
         setErrorMessage('No drivable route found between the specified points.');
@@ -152,7 +160,7 @@ export default function RoutePanel({
         const exposure = calculateRouteExposure({
           routeCoordinates: route.coordinates,
           incidents: events,
-          corridorDistanceKm
+          corridorDistanceKm: corridorBufferKm
         });
         return {
           ...route,
@@ -165,15 +173,17 @@ export default function RoutePanel({
         destination: resolvedDest,
         routes: evaluatedRoutes,
         corridorBufferKm,
-        source: result.source
+        source: result.source,
+        isEstimate: Boolean(result.isEstimate)
       });
 
     } catch (err) {
+      if (requestIdRef.current !== requestId) return;
       console.error('Route calculation error:', err);
       setErrorMessage(err.message || 'Route calculation failed. Please try again.');
     } finally {
       if (watchdogTimer) clearTimeout(watchdogTimer);
-      setIsCalculating(false);
+      if (requestIdRef.current === requestId) setIsCalculating(false);
     }
   };
 
@@ -193,12 +203,22 @@ export default function RoutePanel({
         ...activeRouteData,
         routes: reEvaluated,
         corridorBufferKm: newBuffer
-      });
+      }, { keepSelection: true });
     }
   };
 
   const selectedRoute = activeRouteData?.routes?.[selectedRouteIndex] || activeRouteData?.routes?.[0];
   const exposure = selectedRoute?.exposure;
+
+  // Recommend the route with the lowest corridor risk score (first route wins ties)
+  const recommendedRouteIndex = useMemo(() => {
+    const routes = activeRouteData?.routes || [];
+    let best = 0;
+    routes.forEach((r, idx) => {
+      if ((r.exposure?.riskScore ?? 0) < (routes[best].exposure?.riskScore ?? 0)) best = idx;
+    });
+    return best;
+  }, [activeRouteData]);
 
   if (!isOpen) return null;
 
@@ -433,6 +453,16 @@ export default function RoutePanel({
         {/* Route Exposure Results */}
         {activeRouteData?.routes && activeRouteData.routes.length > 0 && (
           <div className="space-y-4">
+
+            {activeRouteData.isEstimate && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-200 text-xs flex items-start gap-2">
+                <AlertTriangle size={15} className="shrink-0 text-yellow-400 mt-0.5" />
+                <span>
+                  Road routing services were unavailable, so this is a straight-line estimate.
+                  Distance, travel time and corridor threats will not match the actual road. Retry before relying on it.
+                </span>
+              </div>
+            )}
             
             {/* Alternative Routes Switcher */}
             <div>
@@ -458,8 +488,8 @@ export default function RoutePanel({
                         <div className="flex items-center gap-2">
                           <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-gray-600'}`} />
                           <span className="font-bold text-white text-sm">{r.summary || `Route ${idx + 1}`}</span>
-                          {idx === 0 && (
-                            <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.2 rounded border border-green-500/40">
+                          {idx === recommendedRouteIndex && activeRouteData.routes.length > 1 && (
+                            <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.2 rounded border border-green-500/40" title="Lowest corridor risk score">
                               RECOMMENDED
                             </span>
                           )}

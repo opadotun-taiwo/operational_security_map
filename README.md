@@ -19,10 +19,10 @@ OneSecure is a React-based web application that visualizes security events and m
 ## ✨ Features
 
 - **Google Maps Platform Core:** High-performance, cyber-security dark-themed vector road map built with `@vis.gl/react-google-maps`.
-- **Integrated Route Planning & Corridor Exposure:** Driving route computation via Google Routes API (and Supabase Edge Function), with dynamic corridor threat calculation (2km, 5km, 10km, 25km) comparing alternative routes against recorded security incidents.
+- **Integrated Route Planning & Corridor Exposure:** Driving route computation via the Google Routes API (Maps JavaScript API `Route.computeRoutes`, with a Supabase Edge Function and OSRM as fallbacks), with dynamic corridor threat calculation (2km, 5km, 10km, 25km) comparing alternative routes against recorded security incidents.
 - **Explainable Threat Auditing:** Transparent risk scores incorporating incident severity, casualties, verification status, and recency, accompanied by data-freshness and uncertainty disclaimers.
 - **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5km of One Acre Fund operational hubs.
-- **Security Hotspot Zones:** Google Maps visualization heatmap with configurable time-horizons (All Time, 90 Days, 30 Days) and severity weighting.
+- **Security Hotspot Zones:** Canvas heatmap overlay (Google removed `visualization.HeatmapLayer` in Maps JS v3.65) with configurable time-horizons (All Time, 90 Days, 30 Days) and severity weighting.
 - **Smart Incident Clustering:** Hierarchical clustering using Supercluster to cleanly aggregate dense incident markers.
 - **Advanced Multi-Dimensional Filtering:** Filter incidents by Severity, Verification Status, Event Type, State, and Date Range.
 - **Supabase Backend & Edge Functions:** Real-time PostgreSQL database with Edge Functions for secure server-side Google Routes API processing.
@@ -70,6 +70,8 @@ VITE_GOOGLE_MAPS_API_KEY=your_google_maps_browser_key
 VITE_GOOGLE_MAP_ID=DEMO_MAP_ID
 ```
 
+> A Map ID is required for the hub and incident markers (Advanced Markers). The app falls back to Google's `DEMO_MAP_ID` when `VITE_GOOGLE_MAP_ID` is unset; create a custom Map ID in Google Cloud for production.
+
 For the Supabase Edge Function (`calculate-route`), configure the server secret:
 
 ```bash
@@ -79,8 +81,8 @@ supabase secrets set GOOGLE_MAPS_SERVER_KEY=your_google_maps_server_key
 ### 4. Required Google Cloud APIs to Enable
 
 Enable the following APIs in the [Google Cloud Console](https://console.cloud.google.com/apis/dashboard):
-1. **Maps JavaScript API** (Interactive map, visualization heatmap, controls)
-2. **Routes API** (`routes.googleapis.com` for driving directions and alternative routes)
+1. **Maps JavaScript API** (Interactive map, markers, controls)
+2. **Routes API** (`routes.googleapis.com` for driving directions and alternative routes; used from the browser and the Edge Function). The legacy Directions API is not used.
 3. **Places API / Geocoding API** (For location search and address autocomplete)
 
 ### 5. Running and Testing
@@ -113,12 +115,16 @@ The application expects two primary tables in your Supabase database:
    - `state` (text)
    - `severity` (text)
    - `event_type` (text)
+   - `verification_status` (text) - e.g. `Verified`
+   - `fatalities`, `injured`, `abducted` (int)
+   - `location`, `source_url` (text) - optional
 
 2. **`one_acre_fund_locations`** (Hubs)
    - `id` (uuid/int)
    - `latitude` (numeric/float)
    - `longitude` (numeric/float)
-   - `name` (text) - optional
+   - `location_name` (text)
+   - `state` (text) - optional
 
 ### 5. Start the Development Server
 
@@ -138,7 +144,7 @@ Open your browser and navigate to `http://localhost:5173` to view the applicatio
 * **[Vite](https://vitejs.dev/)** - Build Tool & Dev Server
 * **[Tailwind CSS](https://tailwindcss.com/)** - Utility-first CSS framework
 * **[Supabase](https://supabase.com/)** - Backend as a Service (PostgreSQL)
-* **[Mapbox GL JS](https://docs.mapbox.com/mapbox-gl-js/api/)** & **[react-map-gl](https://visgl.github.io/react-map-gl/)** - Interactive Maps
+* **[Google Maps Platform](https://developers.google.com/maps)** & **[@vis.gl/react-google-maps](https://visgl.github.io/react-google-maps/)** - Interactive Maps & Routes
 * **[Turf.js](https://turfjs.org/)** - Advanced geospatial analysis (Proximity calculations)
 * **[Supercluster](https://github.com/mapbox/supercluster)** - Geospatial point clustering
 

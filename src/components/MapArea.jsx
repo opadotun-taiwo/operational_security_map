@@ -13,11 +13,11 @@ import RoutePolylineLayer from './RoutePolylineLayer';
 import ProximityCircleLayer from './ProximityCircleLayer';
 import HeatmapLayer from './HeatmapLayer';
 import MapLayerControls from './MapLayerControls';
-import { darkMapStyles } from '../utils/googleMapStyles';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCSl0cp_JRq0RiSbxh0WCUYS1OzKnZCeK4';
-// Only pass mapId if the user has a real custom Map ID configured in Google Cloud
-const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || undefined;
+// AdvancedMarker (hubs, incidents, clusters) only renders on a map with a Map ID.
+// DEMO_MAP_ID is Google's public test ID; set VITE_GOOGLE_MAP_ID to a custom one for production.
+const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
 
 const INITIAL_CENTER = { lat: 9.0820, lng: 8.6753 }; // Nigeria center
 const INITIAL_ZOOM = 6;
@@ -276,7 +276,7 @@ export default function MapArea({
 }) {
   if (!GOOGLE_MAPS_API_KEY) {
     return (
-      <div className="flex-1 h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-6">
+      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-white p-6">
         <AlertCircle className="w-12 h-12 text-yellow-500 mb-3" />
         <h2 className="text-lg font-bold">Google Maps API Key Missing</h2>
         <p className="text-gray-400 text-sm max-w-md text-center mt-1">
@@ -287,14 +287,13 @@ export default function MapArea({
   }
 
   return (
-    <div className="flex-1 h-screen relative bg-gray-950 z-10" style={{ backgroundColor: '#111827' }}>
-      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['places', 'visualization', 'geometry']}>
+    <div className="absolute inset-0 bg-gray-950 z-10" style={{ backgroundColor: '#111827' }}>
+      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['places', 'geometry', 'routes']}>
         <Map
           defaultCenter={INITIAL_CENTER}
           defaultZoom={INITIAL_ZOOM}
           mapId={GOOGLE_MAP_ID}
           colorScheme="DARK"
-          styles={darkMapStyles}
           backgroundColor="#111827"
           disableDefaultUI={false}
           zoomControl={true}

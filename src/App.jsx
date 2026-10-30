@@ -225,9 +225,9 @@ function App() {
             activeRouteData={activeRouteData}
             selectedRouteIndex={selectedRouteIndex}
             onSelectRouteIndex={setSelectedRouteIndex}
-            onRouteCalculated={(routePayload) => {
+            onRouteCalculated={(routePayload, { keepSelection = false } = {}) => {
               setActiveRouteData(routePayload);
-              setSelectedRouteIndex(0);
+              if (!keepSelection) setSelectedRouteIndex(0);
             }}
             onClearRoute={() => {
               setActiveRouteData(null);

@@ -2,7 +2,6 @@ import { decodePolylineGeometry, validateCoordinates } from '../utils/routeExpos
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 /**
  * Format duration string or seconds to human-readable format.
@@ -58,17 +57,63 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
 }
 
 /**
+ * Reads a coordinate from either a LatLng (methods) or a LatLngLiteral/LatLngAltitude (properties).
+ */
+function readLatLng(pt) {
+  const lat = typeof pt.lat === 'function' ? pt.lat() : pt.lat;
+  const lng = typeof pt.lng === 'function' ? pt.lng() : pt.lng;
+  return [lng, lat];
+}
+
+/**
+ * Computes driving routes in the browser with the Maps JavaScript API Routes library
+ * (google.maps.routes.Route), which is backed by the Routes API.
+ */
+async function computeRoutesClientSide({ origin, destination, computeAlternativeRoutes, timeoutMs }) {
+  if (typeof window === 'undefined' || !window.google?.maps?.importLibrary) return null;
+
+  const { Route } = await window.google.maps.importLibrary('routes');
+  if (!Route?.computeRoutes) return null;
+
+  const request = Route.computeRoutes({
+    origin,
+    destination,
+    travelMode: 'DRIVING',
+    computeAlternativeRoutes,
+    fields: ['path', 'distanceMeters', 'durationMillis', 'description']
+  });
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Route.computeRoutes timed out')), timeoutMs);
+  });
+  const { routes } = await Promise.race([request, timeout]);
+  if (!routes || routes.length === 0) return null;
+
+  return routes.map((r, index) => {
+    const durationSeconds = r.durationMillis ? r.durationMillis / 1000 : null;
+    return {
+      id: `route-${index}`,
+      summary: r.description ? `via ${r.description}` : `Route ${index + 1}`,
+      distanceMeters: r.distanceMeters,
+      distanceText: formatDistance(r.distanceMeters),
+      durationText: formatDuration(durationSeconds),
+      coordinates: (r.path || []).map(readLatLng),
+      rawRoute: r
+    };
+  }).filter(r => r.coordinates.length >= 2);
+}
+
+/**
  * Calculates routes using a resilient multi-tier architecture:
- * 1. Supabase Edge Function (Google Routes API v2)
- * 2. Google Maps JavaScript API DirectionsService (Client-side)
- * 3. High-Precision Driving Road Network Engine (OSRM Road Network)
- * 4. Geodesic Highway Corridor (Offline Fail-safe)
+ * 1. Google Routes API via the Maps JavaScript API (client-side)
+ * 2. Supabase Edge Function (Google Routes API v2, server-side key)
+ * 3. Driving Road Network Engine (OSRM Road Network)
+ * 4. Straight-line corridor estimate (offline fail-safe, flagged as an estimate)
  *
  * @param {Object} params
  * @param {{ lat: number, lng: number } | string} params.origin
  * @param {{ lat: number, lng: number } | string} params.destination
  * @param {boolean} [params.computeAlternativeRoutes=true]
- * @returns {Promise<{ routes: Array<Object>, source: string }>}
+ * @returns {Promise<{ routes: Array<Object>, source: string, isEstimate?: boolean }>}
  */
 export async function calculateRoute({
   origin,
@@ -96,7 +141,24 @@ export async function calculateRoute({
   }
 
   // --------------------------------------------------------------------------
-  // ATTEMPT 1: Supabase Edge Function (Google Routes API)
+  // ATTEMPT 1: Google Routes API through the Maps JavaScript API (Client-side)
+  // --------------------------------------------------------------------------
+  try {
+    const clientRoutes = await computeRoutesClientSide({
+      origin,
+      destination,
+      computeAlternativeRoutes,
+      timeoutMs: 8000
+    });
+    if (clientRoutes && clientRoutes.length > 0) {
+      return { routes: clientRoutes, source: 'Google Routes API' };
+    }
+  } catch (clientErr) {
+    console.warn('Client-side Google routing unavailable, trying next provider:', clientErr.message);
+  }
+
+  // --------------------------------------------------------------------------
+  // ATTEMPT 2: Supabase Edge Function (Google Routes API, server-side key)
   // --------------------------------------------------------------------------
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
@@ -113,11 +175,10 @@ export async function calculateRoute({
           body: JSON.stringify({
             origin,
             destination,
-            apiKey: GOOGLE_MAPS_API_KEY,
             computeAlternativeRoutes
           })
         },
-        4000
+        6000
       );
 
       if (response.ok) {
@@ -128,7 +189,7 @@ export async function calculateRoute({
             const coordinates = decodePolylineGeometry(encoded);
             return {
               id: `route-${index}`,
-              summary: r.description || `Route ${index + 1}`,
+              summary: r.description ? `via ${r.description}` : `Route ${index + 1}`,
               distanceMeters: r.distanceMeters,
               distanceText: formatDistance(r.distanceMeters),
               durationText: formatDuration(r.duration),
@@ -137,89 +198,11 @@ export async function calculateRoute({
             };
           });
 
-          return { routes: parsedRoutes, source: 'Google Routes API' };
+          return { routes: parsedRoutes, source: 'Google Routes API (Server)' };
         }
       }
-    } catch (_edgeErr) {
-      // Proceed gracefully to next tier
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // ATTEMPT 2: Google Maps JavaScript DirectionsService (Client-side)
-  // --------------------------------------------------------------------------
-  if (typeof window !== 'undefined' && window.google?.maps?.DirectionsService) {
-    try {
-      const clientRoute = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error('DirectionsService timed out'));
-        }, 4000);
-
-        try {
-          const directionsService = new window.google.maps.DirectionsService();
-
-          const formatPoint = (pt) => {
-            if (typeof pt === 'object' && pt.lat !== undefined && pt.lng !== undefined) {
-              return new window.google.maps.LatLng(pt.lat, pt.lng);
-            }
-            return pt;
-          };
-
-          const travelMode = window.google.maps.TravelMode?.DRIVING || 'DRIVING';
-
-          directionsService.route(
-            {
-              origin: formatPoint(origin),
-              destination: formatPoint(destination),
-              travelMode,
-              provideRouteAlternatives: computeAlternativeRoutes
-            },
-            (result, status) => {
-              clearTimeout(timer);
-              if (status === 'OK' && result?.routes?.length > 0) {
-                const parsedRoutes = result.routes.map((r, index) => {
-                  const coordinates = [];
-                  let totalDistanceMeters = 0;
-                  let totalDurationSeconds = 0;
-
-                  for (const leg of r.legs) {
-                    totalDistanceMeters += leg.distance?.value || 0;
-                    totalDurationSeconds += leg.duration?.value || 0;
-                    for (const step of leg.steps) {
-                      for (const pt of step.path) {
-                        coordinates.push([pt.lng(), pt.lat()]);
-                      }
-                    }
-                  }
-
-                  return {
-                    id: `route-${index}`,
-                    summary: r.summary || `Driving Route ${index + 1}`,
-                    distanceMeters: totalDistanceMeters,
-                    distanceText: formatDistance(totalDistanceMeters),
-                    durationText: formatDuration(totalDurationSeconds),
-                    coordinates,
-                    rawRoute: r
-                  };
-                });
-
-                resolve({ routes: parsedRoutes, source: 'Google Directions Service' });
-              } else {
-                reject(new Error(`Directions status: ${status}`));
-              }
-            }
-          );
-        } catch (callErr) {
-          clearTimeout(timer);
-          reject(callErr);
-        }
-      });
-
-      if (clientRoute?.routes?.length > 0) {
-        return clientRoute;
-      }
-    } catch (_clientErr) {
-      // Proceed gracefully to next tier
+    } catch (edgeErr) {
+      console.warn('Route edge function unavailable, trying next provider:', edgeErr.message);
     }
   }
 
@@ -229,7 +212,7 @@ export async function calculateRoute({
   if (!isNaN(origLat) && !isNaN(origLng) && !isNaN(destLat) && !isNaN(destLng)) {
     try {
       const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origLng},${origLat};${destLng},${destLat}?overview=full&geometries=geojson&alternatives=${computeAlternativeRoutes}`;
-      const osrmRes = await fetchWithTimeout(osrmUrl, {}, 5000);
+      const osrmRes = await fetchWithTimeout(osrmUrl, {}, 8000);
 
       if (osrmRes.ok) {
         const data = await osrmRes.json();
@@ -254,13 +237,13 @@ export async function calculateRoute({
           return { routes: parsedRoutes, source: 'Road Network Navigation' };
         }
       }
-    } catch (_osrmErr) {
-      // Proceed to fail-safe corridor
+    } catch (osrmErr) {
+      console.warn('Road network router unavailable, using straight-line estimate:', osrmErr.message);
     }
   }
 
   // --------------------------------------------------------------------------
-  // ATTEMPT 4: Multi-segment Geodesic Corridor Route (Offline Fail-safe)
+  // ATTEMPT 4: Straight-line Corridor Estimate (Offline Fail-safe)
   // --------------------------------------------------------------------------
   if (!isNaN(origLat) && !isNaN(origLng) && !isNaN(destLat) && !isNaN(destLng)) {
     // Generate 20 intermediate points along great-circle line for corridor calculations
@@ -287,7 +270,7 @@ export async function calculateRoute({
 
     const failSafeRoute = {
       id: 'geodesic-corridor-0',
-      summary: 'Direct Operational Corridor',
+      summary: 'Straight-line estimate (no road data)',
       distanceMeters: distMeters,
       distanceText: formatDistance(distMeters),
       durationText: formatDuration(estSeconds),
@@ -297,7 +280,8 @@ export async function calculateRoute({
 
     return {
       routes: [failSafeRoute],
-      source: 'Direct Operational Corridor'
+      source: 'Straight-line Estimate',
+      isEstimate: true
     };
   }
 
