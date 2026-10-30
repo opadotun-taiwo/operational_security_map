@@ -15,6 +15,7 @@ import HeatmapLayer from './HeatmapLayer';
 import HubAreaLayer from './HubAreaLayer';
 import RouteMapOverlays from './RouteMapOverlays';
 import MapLayerControls from './MapLayerControls';
+import { scatterOverlapping } from '../utils/scatter';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCSl0cp_JRq0RiSbxh0WCUYS1OzKnZCeK4';
 // AdvancedMarker (hubs, incidents, clusters) only renders on a map with a Map ID.
@@ -134,11 +135,12 @@ function MapContent({
     return { corridorIncidentIds: ids, corridorIncidentMap: mapObj };
   }, [activeRouteData, selectedRouteIndex]);
 
-  // Exploded incidents still present after filtering, fanned out when they share a location
+  // Exploded incidents still present after filtering, scattered when they share a location
   const expandedMarkers = useMemo(() => {
     if (!expanded) return [];
-    return spreadOverlapping(events.filter(e => expanded.ids.has(e.event_id || e.id)));
+    return scatterOverlapping(events.filter(e => expanded.ids.has(e.event_id || e.id)));
   }, [events, expanded]);
+  const sharedLocationCount = expandedMarkers.filter(m => m.sharedCount > 1).length;
   const expandedIds = useMemo(
     () => new Set(expandedMarkers.map(m => m.event.event_id || m.event.id)),
     [expandedMarkers]
@@ -350,6 +352,11 @@ function MapContent({
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-full shadow-2xl pl-4 pr-1.5 py-1.5 text-xs text-white whitespace-nowrap">
           <span>
             Showing <span className="font-bold">{expandedMarkers.length}</span> incident{expandedMarkers.length === 1 ? '' : 's'} at their exact locations
+            {sharedLocationCount > 0 && (
+              <span className="text-gray-400" title="These incidents were recorded with identical coordinates (often a town or LGA centre), so they are spread out slightly around that point.">
+                {' '}· {sharedLocationCount} share a point, spread slightly
+              </span>
+            )}
           </span>
           <button
             onClick={() => onClusterClick?.(expandedMarkers.map(m => m.event))}
@@ -370,35 +377,6 @@ function MapContent({
   );
 }
 
-/**
- * Incidents recorded at the same coordinates would sit exactly on top of each other;
- * fan them out in a small circle (in pixels) so every one can be seen and clicked.
- */
-function spreadOverlapping(incidents) {
-  // Plain object: `Map` in this file is the Google Maps component
-  const groups = {};
-  for (const event of incidents) {
-    const lat = parseFloat(event.latitude);
-    const lng = parseFloat(event.longitude);
-    if (isNaN(lat) || isNaN(lng)) continue;
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    (groups[key] ||= []).push(event);
-  }
-
-  const result = [];
-  for (const group of Object.values(groups)) {
-    if (group.length === 1) {
-      result.push({ event: group[0], offset: null });
-      continue;
-    }
-    const radius = Math.min(14 + group.length * 2, 40);
-    group.forEach((event, i) => {
-      const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
-      result.push({ event, offset: [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)] });
-    });
-  }
-  return result;
-}
 
 /**
  * Main MapArea component wrapped in Google Maps APIProvider.
