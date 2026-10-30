@@ -50,7 +50,7 @@ export default function Tutorial({ restartToken = 0 }) {
     },
     {
       target: '.tutorial-map',
-      content: 'Green numbered circles group nearby incidents. Click one to list them and zoom in. Click a single dot for full details, or a hub to see its 5 km alert zone.',
+      content: 'Green numbered circles group nearby incidents. Click one to zoom in and see each incident at its exact location. Click a single dot for full details, or a hub to see its 5 km alert zone.',
       placement: 'center',
     },
     {

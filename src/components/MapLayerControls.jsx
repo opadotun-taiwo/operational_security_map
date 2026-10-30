@@ -172,7 +172,7 @@ export default function MapLayerControls({
                 <div className="w-3.5 h-3.5 rounded-full bg-red-500 border border-white flex items-center justify-center">
                   <Home className="w-2 h-2 text-white" />
                 </div>
-                <span className="text-gray-300 text-[11px]">Hub threatened (incident &le;5 km, past 90 days)</span>
+                <span className="text-gray-300 text-[11px]">Hub threatened (incident &le;5 km, past 6 weeks)</span>
               </div>
             </div>
           </div>

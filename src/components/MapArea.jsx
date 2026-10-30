@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   APIProvider, 
   Map, 
@@ -6,7 +6,7 @@ import {
   useMap 
 } from '@vis.gl/react-google-maps';
 import useSupercluster from 'use-supercluster';
-import { RotateCcw, AlertCircle } from 'lucide-react';
+import { RotateCcw, AlertCircle, X } from 'lucide-react';
 import IncidentMarker from './IncidentMarker';
 import HubMarker from './HubMarker';
 import RoutePolylineLayer from './RoutePolylineLayer';
@@ -23,6 +23,8 @@ const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
 
 const INITIAL_CENTER = { lat: 9.0820, lng: 8.6753 }; // Nigeria center
 const INITIAL_ZOOM = 6;
+// Closest zoom used when opening a cluster (keeps context when incidents share a spot)
+const MAX_CLUSTER_ZOOM = 15;
 
 /**
  * Inner Map Content component having access to `useMap()`.
@@ -41,11 +43,22 @@ function MapContent({
   selectedRouteIndex,
   onSelectRouteIndex,
   hotspotSettings,
-  setHotspotSettings
+  setHotspotSettings,
+  isPickingLocation = false,
+  onPickLocation,
+  pickedLocation,
+  focusRequest
 }) {
   const map = useMap();
   const [bounds, setBounds] = useState(null);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
+  // A clicked cluster is "exploded": its incidents are drawn individually at their own
+  // locations until the user regroups them or zooms back out.
+  const [expanded, setExpanded] = useState(null); // { ids: Set, minZoom: number | null }
+  const expandedRef = useRef(null);
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
 
   // Sync bounds and zoom on map idle
   React.useEffect(() => {
@@ -61,6 +74,8 @@ function MapContent({
       const z = map.getZoom();
       if (typeof z === 'number') {
         setZoom(z);
+        const minZoom = expandedRef.current?.minZoom;
+        if (typeof minZoom === 'number' && z < minZoom) setExpanded(null);
       }
     };
 
@@ -71,7 +86,28 @@ function MapContent({
     };
   }, [map]);
 
+  // Report form: clicking the map sets the incident location
+  useEffect(() => {
+    if (!map || !isPickingLocation || !window.google?.maps) return undefined;
+    map.setOptions({ draggableCursor: 'crosshair' });
+    const listener = map.addListener('click', (e) => {
+      if (e.latLng) onPickLocation?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+    });
+    return () => {
+      window.google.maps.event.removeListener(listener);
+      map.setOptions({ draggableCursor: null });
+    };
+  }, [map, isPickingLocation, onPickLocation]);
+
+  // Fly to a newly reported incident
+  useEffect(() => {
+    if (!map || !focusRequest || isNaN(focusRequest.lat) || isNaN(focusRequest.lng)) return;
+    map.panTo({ lat: focusRequest.lat, lng: focusRequest.lng });
+    if ((map.getZoom() ?? 0) < 11) map.setZoom(11);
+  }, [map, focusRequest]);
+
   const handleResetView = () => {
+    setExpanded(null);
     if (map) {
       map.panTo(INITIAL_CENTER);
       map.setZoom(INITIAL_ZOOM);
@@ -98,9 +134,19 @@ function MapContent({
     return { corridorIncidentIds: ids, corridorIncidentMap: mapObj };
   }, [activeRouteData, selectedRouteIndex]);
 
-  // Prepare GeoJSON points for Supercluster
+  // Exploded incidents still present after filtering, fanned out when they share a location
+  const expandedMarkers = useMemo(() => {
+    if (!expanded) return [];
+    return spreadOverlapping(events.filter(e => expanded.ids.has(e.event_id || e.id)));
+  }, [events, expanded]);
+  const expandedIds = useMemo(
+    () => new Set(expandedMarkers.map(m => m.event.event_id || m.event.id)),
+    [expandedMarkers]
+  );
+
+  // Prepare GeoJSON points for Supercluster (exploded incidents are drawn separately)
   const points = useMemo(() => {
-    return events.map(event => ({
+    return events.filter(event => !expandedIds.has(event.event_id || event.id)).map(event => ({
       type: 'Feature',
       properties: { 
         cluster: false, 
@@ -113,7 +159,7 @@ function MapContent({
         coordinates: [parseFloat(event.longitude), parseFloat(event.latitude)]
       }
     })).filter(p => !isNaN(p.geometry.coordinates[0]) && !isNaN(p.geometry.coordinates[1]));
-  }, [events]);
+  }, [events, expandedIds]);
 
   const { clusters, supercluster } = useSupercluster({
     points,
@@ -122,25 +168,51 @@ function MapContent({
     options: { radius: 60, maxZoom: 16 }
   });
 
-  // Open the incident list for a cluster and zoom so it splits into its members
+  // Zoom to a cluster's incidents and show each one individually at its location
   const handleClusterClick = (clusterId) => {
     if (!supercluster) return;
     const leaves = supercluster.getLeaves(clusterId, Infinity).map(l => l.properties.event);
-    onClusterClick?.(leaves);
+    const ids = new Set(leaves.map(e => e.event_id || e.id));
+    setExpanded(prev => ({
+      ids: prev ? new Set([...prev.ids, ...ids]) : ids,
+      minZoom: null
+    }));
 
     if (!map || !window.google?.maps) return;
     const clusterBounds = new window.google.maps.LatLngBounds();
     leaves.forEach(e => clusterBounds.extend({ lat: parseFloat(e.latitude), lng: parseFloat(e.longitude) }));
-    const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(clusterId), 17);
-    // Keep the zoomed area clear of the incident list that opens on the right
-    const wide = map.getDiv().offsetWidth >= 900;
-    map.fitBounds(clusterBounds, wide ? { top: 100, right: 440, bottom: 100, left: 100 } : 60);
+    map.fitBounds(clusterBounds, 90);
     window.google.maps.event.addListenerOnce(map, 'idle', () => {
-      // Always zoom far enough for the cluster to split, but not excessively
-      const z = map.getZoom() ?? 0;
-      if (z < expansionZoom) map.setZoom(expansionZoom);
-      else if (z > expansionZoom + 1) map.setZoom(expansionZoom + 1);
+      // Incidents at (nearly) one spot would otherwise zoom to street level
+      if ((map.getZoom() ?? 0) > MAX_CLUSTER_ZOOM) map.setZoom(MAX_CLUSTER_ZOOM);
+      // Zooming out well past this view regroups them
+      const settled = Math.min(map.getZoom() ?? MAX_CLUSTER_ZOOM, MAX_CLUSTER_ZOOM);
+      setExpanded(prev => (prev ? { ...prev, minZoom: settled - 2 } : prev));
     });
+  };
+
+  const renderIncidentMarker = (currentEvent, latitude, longitude, offset) => {
+    const eventId = currentEvent.event_id || currentEvent.id;
+    const isInCorridor = corridorIncidentIds.has(eventId);
+    const corridorInfo = corridorIncidentMap[eventId];
+
+    return (
+      <AdvancedMarker
+        key={`event-${eventId}`}
+        position={{ lat: latitude, lng: longitude }}
+        zIndex={isInCorridor ? 40 : 22}
+        onClick={() => onEventClick?.(currentEvent)}
+      >
+        <div style={offset ? { transform: `translate(${offset[0]}px, ${offset[1]}px)` } : undefined}>
+          <IncidentMarker 
+            event={currentEvent} 
+            activeHubObj={activeHubObj}
+            isInRouteCorridor={isInCorridor}
+            distanceToRouteKm={corridorInfo?.distanceToRouteKm}
+          />
+        </div>
+      </AdvancedMarker>
+    );
   };
 
   return (
@@ -234,7 +306,7 @@ function MapContent({
               position={{ lat: latitude, lng: longitude }}
               zIndex={25}
               onClick={() => handleClusterClick(cluster.id)}
-              title={`${pointCount} incidents here. Click to list them and zoom in.`}
+              title={`${pointCount} incidents here. Click to zoom in and see each one.`}
             >
               <div
                 className="flex items-center justify-center bg-green-700/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-green-600 hover:scale-110 transition-all"
@@ -249,29 +321,83 @@ function MapContent({
           );
         }
 
-        const currentEvent = cluster.properties.event;
-        const eventId = cluster.properties.eventId;
-        const isInCorridor = corridorIncidentIds.has(eventId);
-        const corridorInfo = corridorIncidentMap[eventId];
-
-        return (
-          <AdvancedMarker
-            key={`event-${eventId}`}
-            position={{ lat: latitude, lng: longitude }}
-            zIndex={isInCorridor ? 40 : 22}
-            onClick={() => onEventClick?.(currentEvent)}
-          >
-            <IncidentMarker 
-              event={currentEvent} 
-              activeHubObj={activeHubObj}
-              isInRouteCorridor={isInCorridor}
-              distanceToRouteKm={corridorInfo?.distanceToRouteKm}
-            />
-          </AdvancedMarker>
-        );
+        return renderIncidentMarker(cluster.properties.event, latitude, longitude);
       })}
+
+      {/* Location chosen in the report form */}
+      {pickedLocation && (
+        <AdvancedMarker position={pickedLocation} zIndex={80} title="New incident location">
+          <div className="flex flex-col items-center">
+            <span className="bg-red-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shadow-lg whitespace-nowrap">New report</span>
+            <div className="w-0.5 h-3 bg-red-500" />
+            <div className="w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow-lg" />
+          </div>
+        </AdvancedMarker>
+      )}
+
+      {isPickingLocation && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 bg-yellow-500 text-gray-950 text-sm font-semibold px-4 py-2 rounded-full shadow-2xl whitespace-nowrap pointer-events-none">
+          Click the map where the incident happened
+        </div>
+      )}
+
+      {/* Incidents from an exploded cluster, each at its own location */}
+      {mapLayers?.incidents && expandedMarkers.map(({ event, offset }) =>
+        renderIncidentMarker(event, parseFloat(event.latitude), parseFloat(event.longitude), offset)
+      )}
+
+      {expandedMarkers.length > 0 && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-full shadow-2xl pl-4 pr-1.5 py-1.5 text-xs text-white whitespace-nowrap">
+          <span>
+            Showing <span className="font-bold">{expandedMarkers.length}</span> incident{expandedMarkers.length === 1 ? '' : 's'} at their exact locations
+          </span>
+          <button
+            onClick={() => onClusterClick?.(expandedMarkers.map(m => m.event))}
+            className="ml-2 px-2.5 py-1 rounded-full bg-gray-800 hover:bg-gray-700 border border-gray-700 font-medium"
+          >
+            View as list
+          </button>
+          <button
+            onClick={() => setExpanded(null)}
+            className="px-2.5 py-1 rounded-full bg-gray-800 hover:bg-gray-700 border border-gray-700 font-medium flex items-center gap-1"
+            title="Group these incidents back into clusters"
+          >
+            <X size={12} /> Regroup
+          </button>
+        </div>
+      )}
     </>
   );
+}
+
+/**
+ * Incidents recorded at the same coordinates would sit exactly on top of each other;
+ * fan them out in a small circle (in pixels) so every one can be seen and clicked.
+ */
+function spreadOverlapping(incidents) {
+  // Plain object: `Map` in this file is the Google Maps component
+  const groups = {};
+  for (const event of incidents) {
+    const lat = parseFloat(event.latitude);
+    const lng = parseFloat(event.longitude);
+    if (isNaN(lat) || isNaN(lng)) continue;
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    (groups[key] ||= []).push(event);
+  }
+
+  const result = [];
+  for (const group of Object.values(groups)) {
+    if (group.length === 1) {
+      result.push({ event: group[0], offset: null });
+      continue;
+    }
+    const radius = Math.min(14 + group.length * 2, 40);
+    group.forEach((event, i) => {
+      const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
+      result.push({ event, offset: [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)] });
+    });
+  }
+  return result;
 }
 
 /**
@@ -291,7 +417,11 @@ export default function MapArea({
   selectedRouteIndex = 0,
   onSelectRouteIndex,
   hotspotSettings,
-  setHotspotSettings
+  setHotspotSettings,
+  isPickingLocation,
+  onPickLocation,
+  pickedLocation,
+  focusRequest
 }) {
   if (!GOOGLE_MAPS_API_KEY) {
     return (
@@ -339,6 +469,10 @@ export default function MapArea({
             onSelectRouteIndex={onSelectRouteIndex}
             hotspotSettings={hotspotSettings}
             setHotspotSettings={setHotspotSettings}
+            isPickingLocation={isPickingLocation}
+            onPickLocation={onPickLocation}
+            pickedLocation={pickedLocation}
+            focusRequest={focusRequest}
           />
         </Map>
       </APIProvider>

@@ -46,7 +46,7 @@ export default function DetailsPanel({ event, onClose }) {
             <ShieldAlert className="text-red-500 shrink-0 mt-0.5" size={18} />
             <div>
               <p className="text-red-400 font-bold text-sm">Proximity Alert</p>
-              <p className="text-red-300 text-xs mt-0.5">This incident occurred within 5 km of an operational hub in the past 90 days.</p>
+              <p className="text-red-300 text-xs mt-0.5">This incident occurred within 5 km of an operational hub in the past 6 weeks.</p>
             </div>
           </div>
         )}

@@ -33,7 +33,7 @@ export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, inclu
               </div>
               <div>
                 <p className="text-red-400 font-bold text-sm">Alert: Hubs Threatened</p>
-                <p className="text-red-300/80 text-xs mt-0.5">Events detected within 5km of operations</p>
+                <p className="text-red-300/80 text-xs mt-0.5">Incidents within 5 km of a hub in the past 6 weeks</p>
               </div>
             </div>
             {threateningEvents && threateningEvents.length > 0 && (
@@ -57,7 +57,7 @@ export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, inclu
             </div>
             <div>
               <p className="text-green-400 font-bold text-sm">Operations Safe</p>
-              <p className="text-green-300/80 text-xs mt-0.5">No incidents within 5km of any hub</p>
+              <p className="text-green-300/80 text-xs mt-0.5">No incidents within 5 km of any hub in the past 6 weeks</p>
             </div>
           </div>
         )}

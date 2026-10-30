@@ -23,8 +23,10 @@ OneSecure is a React-based web application that visualizes security events and m
 - **Explainable Threat Auditing:** Transparent risk scores incorporating incident severity, casualties, verification status, and recency, accompanied by data-freshness and uncertainty disclaimers.
 - **Hub-Focused Map:** By default only incidents within 10 km of an operational hub are drawn (5 / 10 / 25 / 50 km or all, via **Show** in the top bar), with faint rings marking each hub's area. Incidents on a selected route's corridor are always shown.
 - **Route Alternatives on the Map:** Up to three driving routes, labelled A / B / C on the map and in the panel, with the selected route colored by corridor risk, alternatives in grey (click either to switch), Safest / Fastest tags and a plain-language recommendation.
+- **Incident Reporting (approved staff):** A **Report Incident** button lets approved GR staff add an incident to `security_events`. Reporters type their email, which is checked against an allow-list stored only as SHA-256 hashes (the addresses never appear in the page). The form adapts to the table's actual columns, and the location can be picked by clicking the map.
+- **Cluster Drill-down:** Clicking a cluster zooms in and draws each of its incidents at its exact location (same-spot reports are fanned out), with **View as list** and **Regroup** options.
 - **Guided Tour:** Runs on first visit; replay it any time with the **?** button.
-- **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5km of One Acre Fund operational hubs.
+- **Proximity Alerts:** Geodesic distance calculation (via Turf.js) flagging security events within 5 km of One Acre Fund operational hubs in the **past 6 weeks**; older incidents no longer turn a hub red.
 - **Security Hotspot Zones:** Canvas heatmap overlay (Google removed `visualization.HeatmapLayer` in Maps JS v3.65) with configurable time-horizons (All Time, 90 Days, 30 Days) and severity weighting.
 - **Smart Incident Clustering:** Hierarchical clustering using Supercluster to cleanly aggregate dense incident markers.
 - **Advanced Multi-Dimensional Filtering:** Filter incidents by Severity, Verification Status, Event Type, State, and Date Range.
@@ -103,6 +105,27 @@ npm run build
 # Start local development server
 npm run dev
 ```
+
+### Incident Reporting Setup
+
+Reports are saved in one of two ways:
+
+1. **Recommended: `submit-incident` Edge Function.** It re-checks the reporter's email on the server and inserts with the service role key, so the table can stay closed to direct browser inserts:
+
+   ```bash
+   supabase functions deploy submit-incident
+   ```
+
+2. **Fallback: direct insert.** If the function is not deployed, the app inserts with the anon key. This only works if row-level security allows it, e.g.:
+
+   ```sql
+   create policy "Allow incident reports" on public.security_events
+     for insert to anon with check (true);
+   ```
+
+   This policy lets anyone holding the public anon key insert rows, so the email check is then only enforced in the browser. Prefer option 1.
+
+To change who can report, update the hash lists in `src/services/incidentReports.js` and `supabase/functions/submit-incident/index.ts` (hash = SHA-256 of the lower-cased email, e.g. `printf %s "name@oneacrefund.org" | sha256sum`). If the table has a `reported_by` (or `reporter_email` / `submitted_by`) column, the reporter's email is stored there.
 
 ### 4. Database Schema Requirements (Supabase)
 

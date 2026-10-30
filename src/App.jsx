@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from './supabase';
 import Sidebar from './components/Sidebar';
 import MapArea from './components/MapArea';
@@ -7,9 +7,9 @@ import ClusterPanel from './components/ClusterPanel';
 import RoutePanel from './components/RoutePanel';
 import TopBar from './components/TopBar';
 import Tutorial from './components/Tutorial';
+import ReportIncidentPanel from './components/ReportIncidentPanel';
 import { Loader2 } from 'lucide-react';
-import * as turf from '@turf/turf';
-import { nearestHub } from './utils/routeComparison';
+import { annotateHubThreats } from './utils/hubThreats';
 
 // Default map scope: only incidents in the operating area around hubs are drawn
 const DEFAULT_HUB_RADIUS_KM = 10;
@@ -24,6 +24,14 @@ function App() {
   const [activeHub, setActiveHub] = useState(null);
   const [tutorialRestart, setTutorialRestart] = useState(0);
   const [isMobileStatusOpen, setIsMobileStatusOpen] = useState(false);
+
+  // Incident reporting
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isPickingLocation, setIsPickingLocation] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState(null);
+  const [focusRequest, setFocusRequest] = useState(null);
+  // Incidents reported in this session stay visible even outside the hub-area filter
+  const [reportedIds, setReportedIds] = useState([]);
 
   // Layer toggles
   const [mapLayers, setMapLayers] = useState({
@@ -56,75 +64,34 @@ function App() {
     dateTo: '',
   });
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        setLoading(true);
-        const [eventsResponse, hubsResponse] = await Promise.all([
-          supabase.from('security_events').select('*'),
-          supabase.from('one_acre_fund_locations').select('*')
-        ]);
+  // Loads incidents and hubs. Re-run after a new incident report is submitted.
+  const loadData = useCallback(async () => {
+    try {
+      const [eventsResponse, hubsResponse] = await Promise.all([
+        supabase.from('security_events').select('*'),
+        supabase.from('one_acre_fund_locations').select('*')
+      ]);
 
-        if (eventsResponse.error) throw eventsResponse.error;
-        if (hubsResponse.error) throw hubsResponse.error;
+      if (eventsResponse.error) throw eventsResponse.error;
+      if (hubsResponse.error) throw hubsResponse.error;
 
-        const rawEvents = eventsResponse.data || [];
-        const rawHubs = hubsResponse.data || [];
-        
-        // Calculate proximity for events and hubs
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
-        const processedEvents = rawEvents.map(event => {
-          let isNearHub = false;
-          const isRecent = event.date ? new Date(event.date) >= threeMonthsAgo : false;
-
-          if (isRecent && event.latitude && event.longitude) {
-            const eventPoint = turf.point([parseFloat(event.longitude), parseFloat(event.latitude)]);
-            for (const hub of rawHubs) {
-              if (hub.latitude && hub.longitude) {
-                const hubPoint = turf.point([parseFloat(hub.longitude), parseFloat(hub.latitude)]);
-                const distance = turf.distance(eventPoint, hubPoint, { units: 'kilometers' });
-                if (distance <= 5) {
-                  isNearHub = true;
-                  break;
-                }
-              }
-            }
-          }
-          return { ...event, isNearHub, isRecent, ...nearestHub(event, rawHubs) };
-        });
-
-        const processedHubs = rawHubs.map(hub => {
-          let isThreatened = false;
-          if (hub.latitude && hub.longitude) {
-            const hubPoint = turf.point([parseFloat(hub.longitude), parseFloat(hub.latitude)]);
-            for (const event of processedEvents) {
-              if (event.isRecent && event.latitude && event.longitude) {
-                const eventPoint = turf.point([parseFloat(event.longitude), parseFloat(event.latitude)]);
-                const distance = turf.distance(hubPoint, eventPoint, { units: 'kilometers' });
-                if (distance <= 5) {
-                  isThreatened = true;
-                  break;
-                }
-              }
-            }
-          }
-          return { ...hub, isThreatened };
-        });
-
-        setHubs(processedHubs);
-        setEvents(processedEvents);
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+      const annotated = annotateHubThreats(eventsResponse.data || [], hubsResponse.data || []);
+      setHubs(annotated.hubs);
+      setEvents(annotated.events);
+      return annotated.events;
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err.message);
+      return null;
+    } finally {
+      setLoading(false);
     }
-
-    fetchData();
   }, []);
+
+  useEffect(() => {
+    // State is only set after the fetch resolves, never synchronously in the effect
+    Promise.resolve().then(loadData);
+  }, [loadData]);
 
   const uniqueStates = useMemo(() => {
     const states = new Set(events.map(e => e.state).filter(Boolean));
@@ -179,11 +146,18 @@ function App() {
     const inHubArea = filters.hubRadiusKm === 'all'
       ? filteredEvents
       : filteredEvents.filter(e => e.nearestHubKm !== null && e.nearestHubKm <= filters.hubRadiusKm);
-    if (!selectedCorridorIncidents?.length) return inHubArea;
     const ids = new Set(inHubArea.map(e => e.event_id || e.id));
-    const corridorExtras = selectedCorridorIncidents.filter(e => !ids.has(e.event_id || e.id));
-    return [...inHubArea, ...corridorExtras];
-  }, [filteredEvents, filters.hubRadiusKm, selectedCorridorIncidents]);
+    const extras = [
+      ...(selectedCorridorIncidents || []),
+      ...filteredEvents.filter(e => reportedIds.includes(e.event_id || e.id))
+    ].filter(e => {
+      const id = e.event_id || e.id;
+      if (ids.has(id)) return false;
+      ids.add(id);
+      return true;
+    });
+    return extras.length ? [...inHubArea, ...extras] : inHubArea;
+  }, [filteredEvents, filters.hubRadiusKm, selectedCorridorIncidents, reportedIds]);
 
   const threateningEvents = events.filter(e => e.isNearHub);
   const isAnyHubThreatened = threateningEvents.length > 0;
@@ -220,6 +194,12 @@ function App() {
         setIsRoutePanelOpen={setIsRoutePanelOpen}
         hasActiveRoute={Boolean(activeRouteData)}
         onShowHelp={() => setTutorialRestart(n => n + 1)}
+        onReportIncident={() => {
+          setIsReportOpen(true);
+          setSelectedEvent(null);
+          setSelectedClusterEvents(null);
+        }}
+        isReportOpen={isReportOpen}
       />
       
       <div className="flex flex-1 overflow-hidden relative">
@@ -292,6 +272,13 @@ function App() {
             onSelectRouteIndex={setSelectedRouteIndex}
             hotspotSettings={hotspotSettings}
             setHotspotSettings={setHotspotSettings}
+            isPickingLocation={isPickingLocation}
+            onPickLocation={(location) => {
+              setPickedLocation(location);
+              setIsPickingLocation(false);
+            }}
+            pickedLocation={isReportOpen ? pickedLocation : null}
+            focusRequest={focusRequest}
           />
 
           {!loading && visibleEvents.length === 0 && (
@@ -310,7 +297,30 @@ function App() {
             </div>
           )}
 
-          {selectedEvent ? (
+          {isReportOpen ? (
+            <ReportIncidentPanel
+              onClose={() => {
+                setIsReportOpen(false);
+                setIsPickingLocation(false);
+                setPickedLocation(null);
+              }}
+              hubs={hubs}
+              states={uniqueStates}
+              eventTypes={uniqueEventTypes}
+              isPickingLocation={isPickingLocation}
+              onStartPicking={() => setIsPickingLocation(p => !p)}
+              pickedLocation={pickedLocation}
+              onSubmitted={async (saved) => {
+                const refreshed = await loadData();
+                const id = saved?.event_id || saved?.id;
+                const match = refreshed?.find(e => id !== undefined && (e.event_id || e.id) === id);
+                if (id !== undefined) setReportedIds(ids => [...ids, id]);
+                setPickedLocation(null);
+                setFocusRequest({ lat: parseFloat(saved.latitude), lng: parseFloat(saved.longitude), at: Date.now() });
+                if (match) setSelectedEvent(match);
+              }}
+            />
+          ) : selectedEvent ? (
             <DetailsPanel 
               event={selectedEvent} 
               onClose={() => setSelectedEvent(null)} 

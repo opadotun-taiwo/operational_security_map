@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Navigation, HelpCircle } from 'lucide-react';
+import { Activity, Navigation, HelpCircle, FilePlus2 } from 'lucide-react';
 
 const HUB_RADIUS_OPTIONS = [5, 10, 25, 50];
 
@@ -11,7 +11,9 @@ export default function TopBar({
   isRoutePanelOpen, 
   setIsRoutePanelOpen,
   hasActiveRoute = false,
-  onShowHelp
+  onShowHelp,
+  onReportIncident,
+  isReportOpen = false
 }) {
   return (
     <div className="w-full bg-gray-900 border-b border-gray-800 z-30 shadow-md">
@@ -49,6 +51,21 @@ export default function TopBar({
             <span className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
           )}
         </button>
+
+        {onReportIncident && (
+          <button
+            onClick={onReportIncident}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
+              isReportOpen
+                ? 'bg-red-600 text-white ring-2 ring-red-400'
+                : 'bg-red-600/15 text-red-200 hover:bg-red-600/30 border border-red-500/50'
+            }`}
+            title="Approved staff: add a new incident report"
+          >
+            <FilePlus2 size={14} />
+            <span>Report Incident</span>
+          </button>
+        )}
 
         {onShowHelp && (
           <button
