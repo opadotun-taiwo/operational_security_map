@@ -16,7 +16,8 @@ import MapLayerControls from './MapLayerControls';
 import { darkMapStyles } from '../utils/googleMapStyles';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCSl0cp_JRq0RiSbxh0WCUYS1OzKnZCeK4';
-const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
+// Only pass mapId if the user has a real custom Map ID configured in Google Cloud
+const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || undefined;
 
 const INITIAL_CENTER = { lat: 9.0820, lng: 8.6753 }; // Nigeria center
 const INITIAL_ZOOM = 6;
@@ -136,7 +137,7 @@ function MapContent({
         className="absolute bottom-8 left-4 z-20 bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-xl border border-gray-800 text-white shadow-xl hover:bg-gray-800 transition-colors text-sm font-medium flex items-center gap-2 tutorial-step-4"
         title="Reset map view to default Nigeria center"
       >
-        <RotateCcw className="w-4 h-4 text-cyan-400" />
+        <RotateCcw className="w-4 h-4 text-green-400" />
         Reset View
       </button>
 
@@ -204,7 +205,7 @@ function MapContent({
               zIndex={25}
             >
               <div
-                className="flex items-center justify-center bg-emerald-600/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-emerald-500 hover:scale-110 transition-all tutorial-step-2"
+                className="flex items-center justify-center bg-green-700/90 text-white rounded-full border-2 border-white shadow-2xl cursor-pointer hover:bg-green-600 hover:scale-110 transition-all tutorial-step-2"
                 style={{
                   width: `${size}px`,
                   height: `${size}px`
@@ -279,20 +280,22 @@ export default function MapArea({
         <AlertCircle className="w-12 h-12 text-yellow-500 mb-3" />
         <h2 className="text-lg font-bold">Google Maps API Key Missing</h2>
         <p className="text-gray-400 text-sm max-w-md text-center mt-1">
-          Please define <code className="text-blue-400">VITE_GOOGLE_MAPS_API_KEY</code> in your environment variables.
+          Please define <code className="text-green-400">VITE_GOOGLE_MAPS_API_KEY</code> in your environment variables.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 h-screen relative bg-gray-950 z-10">
+    <div className="flex-1 h-screen relative bg-gray-950 z-10" style={{ backgroundColor: '#111827' }}>
       <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['places', 'visualization', 'geometry']}>
         <Map
           defaultCenter={INITIAL_CENTER}
           defaultZoom={INITIAL_ZOOM}
           mapId={GOOGLE_MAP_ID}
+          colorScheme="DARK"
           styles={darkMapStyles}
+          backgroundColor="#111827"
           disableDefaultUI={false}
           zoomControl={true}
           mapTypeControl={false}
@@ -301,7 +304,7 @@ export default function MapArea({
           rotateControl={false}
           fullscreenControl={true}
           gestureHandling="greedy"
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', backgroundColor: '#111827' }}
         >
           <MapContent
             events={events}

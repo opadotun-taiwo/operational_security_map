@@ -21,8 +21,8 @@ export default function TopBar({
           <div>
             <h1 className="text-lg font-bold text-white tracking-wide flex items-center gap-1.5">
               OneSecure
-              <span className="text-[10px] font-semibold text-cyan-400 bg-cyan-950 px-1.5 py-0.2 rounded border border-cyan-800">
-                PRO
+              <span className="text-[10px] font-semibold text-green-400 bg-green-950/80 px-1.5 py-0.2 rounded border border-green-700/60">
+                ONE ACRE FUND
               </span>
             </h1>
             <p className="text-[10px] text-gray-400">Security Intelligence Portal</p>
@@ -32,17 +32,17 @@ export default function TopBar({
         {/* Route Intelligence Toggle Button */}
         <button
           onClick={() => setIsRoutePanelOpen(!isRoutePanelOpen)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
             isRoutePanelOpen
-              ? 'bg-blue-600 text-white shadow-blue-500/20 ring-1 ring-blue-400'
+              ? 'bg-green-600 text-white shadow-green-600/25 ring-2 ring-green-400'
               : 'bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 border border-gray-700'
           }`}
-          title="Toggle Route Planning and Exposure Analysis"
+          title="Toggle Route Planning and Threat Exposure Analysis"
         >
-          <Navigation size={14} className={isRoutePanelOpen ? 'text-white' : 'text-blue-400'} />
+          <Navigation size={14} className={isRoutePanelOpen ? 'text-white' : 'text-green-400'} />
           <span>Route Intelligence</span>
           {hasActiveRoute && (
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
           )}
         </button>
 
@@ -68,7 +68,7 @@ export default function TopBar({
           <select
             value={filters.severity}
             onChange={(e) => setFilters({ ...filters, severity: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-green-500"
           >
             <option value="All">All Severity</option>
             <option value="Critical">Critical</option>
@@ -81,7 +81,7 @@ export default function TopBar({
           <select
             value={filters.eventType}
             onChange={(e) => setFilters({ ...filters, eventType: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-green-500"
           >
             <option value="All">All Event Types</option>
             <option value="Terrorist Attack">Terrorist Attack</option>
@@ -94,7 +94,7 @@ export default function TopBar({
           <select
             value={filters.verificationStatus || 'All'}
             onChange={(e) => setFilters({ ...filters, verificationStatus: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-green-500"
           >
             <option value="All">All Verification</option>
             <option value="Verified">Verified Only</option>
@@ -105,7 +105,7 @@ export default function TopBar({
           <select
             value={filters.state}
             onChange={(e) => setFilters({ ...filters, state: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500 max-w-[140px]"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-green-500 max-w-[140px]"
           >
             <option value="All">All States</option>
             {states.map(state => (
@@ -141,7 +141,7 @@ export default function TopBar({
               id="hubFilterTop"
               checked={filters.showOnlyNearHubs}
               onChange={(e) => setFilters({ ...filters, showOnlyNearHubs: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900"
+              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-green-600 focus:ring-green-500 focus:ring-offset-gray-900"
             />
             <label htmlFor="hubFilterTop" className="text-xs font-medium text-gray-300 cursor-pointer select-none whitespace-nowrap">
               Near Hubs (&le;5km)

@@ -15,7 +15,8 @@ export default function IncidentMarker({
 
   const isRecent = Boolean(event.isRecent);
 
-  let colorClass = 'bg-blue-500 border-blue-300';
+  // One Acre Fund Green palette for standard incidents, Red for Critical, Orange for High
+  let colorClass = 'bg-emerald-500 border-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.5)]';
   if (isCritical) {
     colorClass = 'bg-red-500 border-red-300 shadow-[0_0_12px_rgba(239,68,68,0.7)]';
   } else if (isHigh) {
@@ -42,7 +43,7 @@ export default function IncidentMarker({
     >
       {/* Route Corridor Highlight Ring */}
       {isInRouteCorridor && (
-        <span className="absolute -inset-2 rounded-full border-2 border-cyan-400 bg-cyan-400/20 animate-pulse pointer-events-none" />
+        <span className="absolute -inset-2 rounded-full border-2 border-green-400 bg-green-400/25 animate-pulse pointer-events-none" />
       )}
 
       {/* Near Active Hub Warning Pulse */}
@@ -59,7 +60,7 @@ export default function IncidentMarker({
       <div
         className={`w-4 h-4 rounded-full border-2 shadow-lg transition-transform duration-200 group-hover:scale-150 flex items-center justify-center ${colorClass} ${
           isNearActiveHub ? 'ring-4 ring-yellow-400' : ''
-        } ${isInRouteCorridor ? 'ring-4 ring-cyan-400 scale-125' : ''}`}
+        } ${isInRouteCorridor ? 'ring-4 ring-green-400 scale-125' : ''}`}
       >
         {isCritical && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
       </div>
@@ -82,7 +83,7 @@ export default function IncidentMarker({
         <div className="bg-gray-900/95 text-white text-[11px] px-2.5 py-1.5 rounded-md shadow-xl border border-gray-700 whitespace-nowrap">
           <p className="font-semibold text-gray-200">{event.event_type || 'Security Incident'}</p>
           <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
-            <span className={isCritical ? 'text-red-400' : isHigh ? 'text-orange-400' : 'text-blue-400'}>
+            <span className={isCritical ? 'text-red-400' : isHigh ? 'text-orange-400' : 'text-emerald-400'}>
               {event.severity}
             </span>
             <span>•</span>
@@ -90,7 +91,7 @@ export default function IncidentMarker({
             {distanceToRouteKm !== null && (
               <>
                 <span>•</span>
-                <span className="text-cyan-400 font-medium">{distanceToRouteKm}km to route</span>
+                <span className="text-green-400 font-medium">{distanceToRouteKm}km to route</span>
               </>
             )}
           </div>

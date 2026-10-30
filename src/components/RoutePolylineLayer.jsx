@@ -37,12 +37,12 @@ export default function RoutePolylineLayer({
         return pt;
       });
 
-      // Primary active route styling vs alternative route styling
+      // Primary active route styling vs alternative route styling (One Acre Fund Green for selected)
       const polyline = new window.google.maps.Polyline({
         path,
         map,
         geodesic: true,
-        strokeColor: isSelected ? '#06b6d4' : '#64748b', // Cyan for active, muted slate for alt
+        strokeColor: isSelected ? '#16a34a' : '#64748b', // One Acre Fund Green for active route
         strokeOpacity: isSelected ? 0.95 : 0.6,
         strokeWeight: isSelected ? 6 : 4,
         zIndex: isSelected ? 50 : 20,

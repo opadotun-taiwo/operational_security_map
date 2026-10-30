@@ -1,9 +1,60 @@
 import * as turf from '@turf/turf';
-import { decode } from '@googlemaps/polyline-codec';
+
+/**
+ * Robust Google encoded polyline decoder with zero external package dependencies.
+ * Decodes standard Google encoded polyline strings to GeoJSON [lng, lat] coordinate pairs.
+ * 
+ * @param {string} encoded - Encoded polyline string
+ * @returns {Array<[number, number]>} Array of [lng, lat] coordinate pairs
+ */
+export function decodePolylineGeometry(encoded) {
+  if (!encoded || typeof encoded !== 'string') {
+    return [];
+  }
+
+  try {
+    const poly = [];
+    let index = 0;
+    const len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let b;
+      let shift = 0;
+      let result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      // GeoJSON standard coordinate order: [longitude, latitude]
+      poly.push([lng * 1e-5, lat * 1e-5]);
+    }
+
+    return poly;
+  } catch (err) {
+    console.error('Failed to decode polyline:', err);
+    return [];
+  }
+}
 
 /**
  * Validates geographical coordinates, especially within operational boundaries (Nigeria / West Africa).
- * Nigeria bounding box roughly: Lat 4.0 - 14.0 N, Lng 2.5 - 15.0 E.
+ * Nigeria bounding box roughly: Lat 3.5 - 14.5 N, Lng 2.0 - 15.5 E.
  * 
  * @param {Object} coords - { lat: number, lng: number }
  * @param {boolean} enforceNigeriaBounds - Whether to check if coordinates are within Nigeria bounds
@@ -36,28 +87,6 @@ export function validateCoordinates(coords, enforceNigeriaBounds = true) {
   }
 
   return { valid: true, error: null };
-}
-
-/**
- * Decodes Google encoded polyline string to [lng, lat] coordinate pairs for GeoJSON / Turf.
- * 
- * @param {string} encodedPolyline 
- * @returns {Array<[number, number]>} Array of [lng, lat] coordinates
- */
-export function decodePolylineGeometry(encodedPolyline) {
-  if (!encodedPolyline || typeof encodedPolyline !== 'string') {
-    return [];
-  }
-
-  try {
-    // decode returns array of [latitude, longitude]
-    const decoded = decode(encodedPolyline);
-    // Convert to GeoJSON order: [longitude, latitude]
-    return decoded.map(([lat, lng]) => [lng, lat]);
-  } catch (err) {
-    console.error('Failed to decode polyline:', err);
-    return [];
-  }
 }
 
 /**
@@ -146,7 +175,7 @@ export function calculateRouteExposure({
   corridorIncidents.sort((a, b) => a.distanceToRouteKm - b.distanceToRouteKm);
 
   // Transparent, explainable risk scoring formula:
-  // Base threat weighting + casualties factor + recency multiplier + corridor proximity weighting
+  // Base threat weighting + casualties factor + recency multiplier
   let rawScore = (criticalCount * 28) + (highCount * 14) + (mediumLowCount * 5);
   rawScore += recentCount * 6;
   rawScore += Math.min(totalFatalities * 3, 30);
@@ -196,4 +225,3 @@ export function calculateRouteExposure({
     disclaimer
   };
 }
-

@@ -63,7 +63,7 @@ export default function Sidebar({ events, isAnyHubThreatened, threateningEvents,
         )}
 
         <div className="pt-4 space-y-4">
-          <StatCard title="Total Incidents" value={totalIncidents} icon={Activity} colorClass="bg-blue-500/20 text-blue-400" />
+          <StatCard title="Total Incidents" value={totalIncidents} icon={Activity} colorClass="bg-green-600/20 text-green-400" />
           <StatCard title="Fatalities" value={totalFatalities} icon={Skull} colorClass="bg-red-500/20 text-red-400" />
           <StatCard title="Injured" value={totalInjured} icon={AlertCircle} colorClass="bg-orange-500/20 text-orange-400" />
           <StatCard title="Abducted" value={totalAbducted} icon={AlertCircle} colorClass="bg-yellow-500/20 text-yellow-400" />

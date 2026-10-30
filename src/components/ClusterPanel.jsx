@@ -10,7 +10,7 @@ export default function ClusterPanel({ events, onClose, onEventClick }) {
       <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           Cluster Incidents
-          <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-0.5 rounded-full border border-blue-500/50">
+          <span className="bg-green-600/20 text-green-400 text-xs px-2 py-0.5 rounded-full border border-green-500/50">
             {events.length}
           </span>
         </h2>
@@ -22,13 +22,13 @@ export default function ClusterPanel({ events, onClose, onEventClick }) {
         </button>
       </div>
 
-      <div className="p-4 flex-1 overflow-y-auto space-y-3">
+      <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
         {events.map((event) => {
           const isCritical = event.severity?.toLowerCase() === 'critical';
           const isHigh = event.severity?.toLowerCase() === 'high';
 
-          let borderClass = 'border-blue-500/30 hover:border-blue-500/80';
-          let badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/50';
+          let borderClass = 'border-green-500/30 hover:border-green-500/80';
+          let badgeClass = 'bg-green-600/20 text-green-400 border border-green-500/50';
           
           if (isCritical) {
             borderClass = 'border-red-500/30 hover:border-red-500/80';

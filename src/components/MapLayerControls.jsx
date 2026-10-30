@@ -20,7 +20,7 @@ export default function MapLayerControls({
         className="bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-800 shadow-xl text-white hover:bg-gray-800 transition-colors flex items-center justify-center tutorial-step-3"
         title={isOpen ? "Collapse Controls" : "Expand Controls"}
       >
-        <Layers className="w-5 h-5 text-cyan-400" />
+        <Layers className="w-5 h-5 text-green-400" />
       </button>
 
       {isOpen && (
@@ -28,12 +28,12 @@ export default function MapLayerControls({
           {/* Layer Controls */}
           <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-gray-800 shadow-xl overflow-hidden w-full">
             <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2 bg-gray-800/40">
-              <Layers className="w-4 h-4 text-cyan-400" />
+              <Layers className="w-4 h-4 text-green-400" />
               <h3 className="font-semibold text-white text-sm">Map Layers</h3>
             </div>
             <div className="p-2 flex flex-col gap-1">
               <LayerToggle 
-                icon={<MapPin className="w-4 h-4 text-blue-400" />}
+                icon={<MapPin className="w-4 h-4 text-green-400" />}
                 label="Security Incidents" 
                 isActive={mapLayers.incidents} 
                 onClick={() => toggleLayer('incidents')} 
@@ -112,13 +112,13 @@ export default function MapLayerControls({
           {/* Operational Legend */}
           <div className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-gray-800 shadow-xl overflow-hidden w-full">
             <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2 bg-gray-800/40">
-              <Activity className="w-4 h-4 text-cyan-400" />
+              <Activity className="w-4 h-4 text-green-400" />
               <h3 className="font-semibold text-white text-xs">Operating Legend</h3>
             </div>
             <div className="p-3 flex flex-col gap-2.5 text-xs">
               <LegendItem color="bg-red-500" label="Critical Severity Threat" />
               <LegendItem color="bg-orange-500" label="High Severity Event" />
-              <LegendItem color="bg-blue-500" label="Medium / Low Event" />
+              <LegendItem color="bg-emerald-500" label="Medium / Low Event" />
               
               <div className="flex items-center gap-2.5 mt-0.5">
                 <div className="w-3.5 h-3.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500 flex items-center justify-center">
@@ -136,8 +136,8 @@ export default function MapLayerControls({
               </div>
 
               <div className="flex items-center gap-2.5">
-                <div className="w-3.5 h-3.5 rounded-full border border-cyan-400 bg-cyan-400/20 ring-2 ring-cyan-400/50 flex items-center justify-center">
-                  <Route size={9} className="text-cyan-300" />
+                <div className="w-3.5 h-3.5 rounded-full border border-green-400 bg-green-400/20 ring-2 ring-green-400/50 flex items-center justify-center">
+                  <Route size={9} className="text-green-300" />
                 </div>
                 <span className="text-gray-300 text-[11px]">Active Route Corridor Threat</span>
               </div>
@@ -145,7 +145,7 @@ export default function MapLayerControls({
               <div className="h-px bg-gray-800 my-0.5" />
 
               <div className="flex items-center gap-2.5">
-                <div className="w-3.5 h-3.5 rounded-full bg-emerald-600 border border-white flex items-center justify-center">
+                <div className="w-3.5 h-3.5 rounded-full bg-green-600 border border-white flex items-center justify-center">
                   <Home className="w-2 h-2 text-white" />
                 </div>
                 <span className="text-gray-300 text-[11px]">Operational Hub (Safe)</span>
@@ -170,16 +170,16 @@ function LayerToggle({ icon, label, isActive, onClick }) {
     <button
       onClick={onClick}
       className={`flex items-center justify-between w-full px-3 py-2 rounded-lg transition-colors ${
-        isActive ? 'bg-blue-600/15 hover:bg-blue-600/25' : 'hover:bg-gray-800/70'
+        isActive ? 'bg-green-600/15 hover:bg-green-600/25' : 'hover:bg-gray-800/70'
       }`}
     >
       <div className="flex items-center gap-2.5">
         {icon}
-        <span className={`text-xs ${isActive ? 'text-blue-100 font-medium' : 'text-gray-400'}`}>
+        <span className={`text-xs ${isActive ? 'text-green-100 font-medium' : 'text-gray-400'}`}>
           {label}
         </span>
       </div>
-      <div className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 ${isActive ? 'bg-blue-500' : 'bg-gray-700'}`}>
+      <div className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 ${isActive ? 'bg-green-600' : 'bg-gray-700'}`}>
         <div className={`w-3 h-3 rounded-full bg-white transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
       </div>
     </button>

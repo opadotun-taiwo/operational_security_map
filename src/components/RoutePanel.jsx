@@ -56,8 +56,8 @@ export default function RoutePanel({
   // Swap Origin and Destination
   const handleSwap = () => {
     if (originType === 'hub' && destType === 'hub') {
-      const temp = selectedOriginHubId;
-      setSelectedOriginHubId(selectedDestHubId);
+      const temp = effectiveOriginHubId;
+      setSelectedOriginHubId(effectiveDestHubId);
       setSelectedDestHubId(temp);
     } else {
       const tempType = originType;
@@ -125,8 +125,17 @@ export default function RoutePanel({
       return;
     }
 
+    // Safety watchdog timer to guarantee the button cannot roll indefinitely
+    let watchdogTimer = null;
+
     try {
       setIsCalculating(true);
+
+      watchdogTimer = setTimeout(() => {
+        setIsCalculating(false);
+        setErrorMessage('Route calculation took longer than expected. Please retry.');
+      }, 9000);
+
       const result = await calculateRoute({
         origin: { lat: resolvedOrigin.lat, lng: resolvedOrigin.lng },
         destination: { lat: resolvedDest.lat, lng: resolvedDest.lng },
@@ -163,6 +172,7 @@ export default function RoutePanel({
       console.error('Route calculation error:', err);
       setErrorMessage(err.message || 'Route calculation failed. Please try again.');
     } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
       setIsCalculating(false);
     }
   };
@@ -198,14 +208,14 @@ export default function RoutePanel({
       {/* Panel Header */}
       <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-800/40">
         <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30">
+          <div className="p-2 bg-green-600/20 text-green-400 rounded-lg border border-green-500/30">
             <Navigation size={18} />
           </div>
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               Route Intelligence
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-                GOOGLE ROUTES
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-green-950 text-green-400 border border-green-800">
+                {activeRouteData?.source ? activeRouteData.source.toUpperCase() : 'ONE SECURE'}
               </span>
             </h2>
             <p className="text-xs text-gray-400">Security corridor risk evaluation</p>
@@ -230,21 +240,21 @@ export default function RoutePanel({
           {/* Origin */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-gray-300">
-              <span className="flex items-center gap-1.5 font-medium text-emerald-400">
+              <span className="flex items-center gap-1.5 font-medium text-green-400">
                 <MapPin size={14} /> Origin (Departure)
               </span>
               <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setOriginType('hub')}
-                  className={`px-2 py-0.5 rounded ${originType === 'hub' ? 'bg-emerald-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+                  className={`px-2 py-0.5 rounded transition-colors ${originType === 'hub' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
                 >
                   Hub
                 </button>
                 <button
                   type="button"
                   onClick={() => setOriginType('custom')}
-                  className={`px-2 py-0.5 rounded ${originType === 'custom' ? 'bg-emerald-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+                  className={`px-2 py-0.5 rounded transition-colors ${originType === 'custom' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
                 >
                   Custom
                 </button>
@@ -255,7 +265,7 @@ export default function RoutePanel({
               <select
                 value={effectiveOriginHubId}
                 onChange={(e) => setSelectedOriginHubId(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
               >
                 <option value="">Select Operational Hub...</option>
                 {hubs.map(h => (
@@ -272,7 +282,7 @@ export default function RoutePanel({
                   placeholder="Lat (e.g. 9.076)"
                   value={customOrigin.lat}
                   onChange={(e) => setCustomOrigin({ ...customOrigin, lat: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
                 />
                 <input
                   type="number"
@@ -280,7 +290,7 @@ export default function RoutePanel({
                   placeholder="Lng (e.g. 7.398)"
                   value={customOrigin.lng}
                   onChange={(e) => setCustomOrigin({ ...customOrigin, lng: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
                 />
               </div>
             )}
@@ -301,21 +311,21 @@ export default function RoutePanel({
           {/* Destination */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-gray-300">
-              <span className="flex items-center gap-1.5 font-medium text-cyan-400">
+              <span className="flex items-center gap-1.5 font-medium text-green-400">
                 <MapPin size={14} /> Destination (Arrival)
               </span>
               <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setDestType('hub')}
-                  className={`px-2 py-0.5 rounded ${destType === 'hub' ? 'bg-cyan-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+                  className={`px-2 py-0.5 rounded transition-colors ${destType === 'hub' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
                 >
                   Hub
                 </button>
                 <button
                   type="button"
                   onClick={() => setDestType('custom')}
-                  className={`px-2 py-0.5 rounded ${destType === 'custom' ? 'bg-cyan-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+                  className={`px-2 py-0.5 rounded transition-colors ${destType === 'custom' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
                 >
                   Custom
                 </button>
@@ -326,7 +336,7 @@ export default function RoutePanel({
               <select
                 value={effectiveDestHubId}
                 onChange={(e) => setSelectedDestHubId(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
               >
                 <option value="">Select Operational Hub...</option>
                 {hubs.map(h => (
@@ -343,7 +353,7 @@ export default function RoutePanel({
                   placeholder="Lat (e.g. 9.615)"
                   value={customDest.lat}
                   onChange={(e) => setCustomDest({ ...customDest, lat: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
                 />
                 <input
                   type="number"
@@ -351,7 +361,7 @@ export default function RoutePanel({
                   placeholder="Lng (e.g. 6.547)"
                   value={customDest.lng}
                   onChange={(e) => setCustomDest({ ...customDest, lng: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
                 />
               </div>
             )}
@@ -360,7 +370,7 @@ export default function RoutePanel({
           {/* Corridor Buffer Distance Selector */}
           <div className="pt-2 border-t border-gray-700/60 flex items-center justify-between text-xs">
             <span className="text-gray-400 flex items-center gap-1.5 font-medium">
-              <Sliders size={13} /> Corridor Threat Buffer:
+              <Sliders size={13} /> Threat Corridor Buffer:
             </span>
             <div className="flex items-center gap-1">
               {[2, 5, 10, 25].map(dist => (
@@ -370,7 +380,7 @@ export default function RoutePanel({
                   onClick={() => handleBufferChange(dist)}
                   className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${
                     corridorBufferKm === dist 
-                      ? 'bg-blue-600 text-white' 
+                      ? 'bg-green-600 text-white' 
                       : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                   }`}
                 >
@@ -386,7 +396,7 @@ export default function RoutePanel({
               type="button"
               disabled={isCalculating}
               onClick={handleCalculateRoute}
-              className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg text-sm"
+              className="flex-1 py-2.5 bg-green-600 hover:bg-green-500 disabled:bg-green-900/60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-950/40 text-sm"
             >
               {isCalculating ? (
                 <>
@@ -440,16 +450,16 @@ export default function RoutePanel({
                       onClick={() => onSelectRouteIndex?.(idx)}
                       className={`p-3 rounded-xl border cursor-pointer transition-all ${
                         isSelected 
-                          ? 'bg-blue-900/30 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/50' 
+                          ? 'bg-green-950/35 border-green-500 shadow-[0_0_15px_rgba(22,163,74,0.18)] ring-1 ring-green-500/50' 
                           : 'bg-gray-800/40 border-gray-700 hover:bg-gray-800 hover:border-gray-600'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]' : 'bg-gray-600'}`} />
+                          <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-gray-600'}`} />
                           <span className="font-bold text-white text-sm">{r.summary || `Route ${idx + 1}`}</span>
                           {idx === 0 && (
-                            <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.2 rounded border border-blue-500/40">
+                            <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.2 rounded border border-green-500/40">
                               RECOMMENDED
                             </span>
                           )}
@@ -469,7 +479,7 @@ export default function RoutePanel({
                           </span>
                         </div>
                         <span className="text-xs font-semibold text-gray-300">
-                          {routeExposure?.totalCount || 0} incidents in {corridorBufferKm}km corridor
+                          {routeExposure?.totalCount || 0} threats in {corridorBufferKm}km
                         </span>
                       </div>
                     </div>
@@ -483,7 +493,7 @@ export default function RoutePanel({
               <div className="bg-gray-800/60 p-4 rounded-xl border border-gray-700 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                    <ShieldAlert size={16} className={exposure.riskScore >= 35 ? 'text-red-400' : 'text-emerald-400'} />
+                    <ShieldAlert size={16} className={exposure.riskScore >= 35 ? 'text-red-400' : 'text-green-400'} />
                     Corridor Threat Profile
                   </h3>
                   <span className={`text-xs font-bold px-2.5 py-1 rounded-md border ${exposure.riskColor}`}>
@@ -551,11 +561,11 @@ export default function RoutePanel({
                             <div className="space-y-0.5">
                               <div className="flex items-center gap-2">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                                  isCrit ? 'bg-red-500/20 text-red-400' : isHi ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'
+                                  isCrit ? 'bg-red-500/20 text-red-400' : isHi ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'
                                 }`}>
                                   {inc.severity}
                                 </span>
-                                <span className="font-medium text-xs text-white group-hover:text-cyan-400 transition-colors">
+                                <span className="font-medium text-xs text-white group-hover:text-green-400 transition-colors">
                                   {inc.event_type || 'Incident'}
                                 </span>
                               </div>
@@ -565,10 +575,10 @@ export default function RoutePanel({
                             </div>
 
                             <div className="text-right shrink-0">
-                              <span className="text-xs font-mono font-semibold text-cyan-400 block">
+                              <span className="text-xs font-mono font-semibold text-green-400 block">
                                 {inc.distanceToRouteKm} km
                               </span>
-                              <span className="text-[10px] text-gray-500 flex items-center gap-0.5 justify-end">
+                              <span className="text-[10px] text-gray-500 flex items-center gap-0.5 justify-end group-hover:text-gray-300">
                                 Inspect <ChevronRight size={10} />
                               </span>
                             </div>
