@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Navigation, 
   ArrowDownUp, 
@@ -7,121 +7,109 @@ import {
   RotateCcw, 
   ChevronRight, 
   Car,
-  X
+  X,
+  ExternalLink,
+  Loader2,
+  Info
 } from 'lucide-react';
 import { calculateRoute } from '../services/routingService';
-import { calculateRouteExposure, validateCoordinates } from '../utils/routeExposure';
+import { reverseGeocode } from '../services/geocoding';
+import { calculateRouteExposure } from '../utils/routeExposure';
 import { compareRoutes, riskColor, routeLetter } from '../utils/routeComparison';
+import {
+  LOOKBACK_OPTIONS,
+  DEFAULT_LOOKBACK,
+  lookbackDays,
+  filterByLookback,
+  sampleRoute,
+  buildStretches,
+  summarizeJourney,
+  googleMapsDirectionsUrl
+} from '../utils/journey';
+import RoutePlaceInput from './RoutePlaceInput';
+
+const BUFFER_OPTIONS = [2, 5, 10, 25];
+
+/** Scores a route against incidents and, once its LGAs are known, splits it into stretches. */
+function evaluateRoute(route, incidents, corridorDistanceKm) {
+  const exposure = calculateRouteExposure({ routeCoordinates: route.coordinates, incidents, corridorDistanceKm });
+  const stretches = route.samples
+    ? buildStretches(route.coordinates, route.samples, exposure.corridorIncidents, corridorDistanceKm)
+    : null;
+  return { ...route, exposure, stretches };
+}
+
+/** Looks up the LGA and state of each sample point along a route (4 requests at a time). */
+async function labelRouteSamples(samples) {
+  const labelled = new Array(samples.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < samples.length) {
+      const i = next++;
+      const [lng, lat] = samples[i].point;
+      try {
+        const place = await reverseGeocode(lat, lng);
+        labelled[i] = { ...samples[i], lga: place.lga, state: place.state };
+      } catch {
+        labelled[i] = { ...samples[i], lga: '', state: '' };
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  // No names at all (lookups unavailable): fall back to equal numbered sections
+  if (labelled.every(s => !s.lga)) {
+    const per = Math.max(1, Math.ceil(labelled.length / 5));
+    return labelled.map((s, i) => ({ ...s, lga: `Section ${Math.floor(i / per) + 1}` }));
+  }
+  return labelled;
+}
 
 export default function RoutePanel({
   hubs = [],
   events = [],
+  operatingStates = [],
   onRouteCalculated,
+  onUpdateRouteData,
   onClearRoute,
   onSelectEvent,
   isOpen,
   onClose,
   activeRouteData,
   selectedRouteIndex = 0,
-  onSelectRouteIndex
+  onSelectRouteIndex,
+  pickingFor,
+  onTogglePick,
+  routePick
 }) {
-  const [originType, setOriginType] = useState('hub'); // 'hub' | 'custom'
-  const [destType, setDestType] = useState('hub'); // 'hub' | 'custom'
-
-  const [selectedOriginHubId, setSelectedOriginHubId] = useState('');
-  const [selectedDestHubId, setSelectedDestHubId] = useState('');
-
-  const [customOrigin, setCustomOrigin] = useState({ lat: '', lng: '', label: '' });
-  const [customDest, setCustomDest] = useState({ lat: '', lng: '', label: '' });
-
+  const [origin, setOrigin] = useState(null);
+  const [destination, setDestination] = useState(null);
   const [corridorBufferKm, setCorridorBufferKm] = useState(5);
+  const [lookback, setLookback] = useState(DEFAULT_LOOKBACK);
   const [isCalculating, setIsCalculating] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   // Incremented per request so a slow, superseded calculation can't overwrite a newer one
   const requestIdRef = useRef(0);
 
-  const effectiveOriginHubId = selectedOriginHubId || (hubs[0]?.id ? String(hubs[0].id) : '');
-  const effectiveDestHubId = selectedDestHubId || (hubs[1]?.id ? String(hubs[1].id) : '');
+  const eventsRef = useRef(events);
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
 
-  const originHub = useMemo(() => 
-    hubs.find(h => String(h.id) === String(effectiveOriginHubId)),
-    [hubs, effectiveOriginHubId]
-  );
+  const lookbackLabel = LOOKBACK_OPTIONS.find(o => o.id === lookback)?.label;
 
-  const destHub = useMemo(() => 
-    hubs.find(h => String(h.id) === String(effectiveDestHubId)),
-    [hubs, effectiveDestHubId]
-  );
-
-  // Swap Origin and Destination
   const handleSwap = () => {
-    if (originType === 'hub' && destType === 'hub') {
-      const temp = effectiveOriginHubId;
-      setSelectedOriginHubId(effectiveDestHubId);
-      setSelectedDestHubId(temp);
-    } else {
-      const tempType = originType;
-      const tempCustom = { ...customOrigin };
-      setOriginType(destType);
-      setCustomOrigin(customDest);
-      setDestType(tempType);
-      setCustomDest(tempCustom);
-    }
+    setOrigin(destination);
+    setDestination(origin);
   };
 
   const handleCalculateRoute = async () => {
     setErrorMessage(null);
-    let resolvedOrigin = null;
-    let resolvedDest = null;
-
-    if (originType === 'hub') {
-      if (!originHub) {
-        setErrorMessage('Please select an operational hub as origin.');
-        return;
-      }
-      resolvedOrigin = {
-        lat: parseFloat(originHub.latitude),
-        lng: parseFloat(originHub.longitude),
-        label: originHub.location_name
-      };
-    } else {
-      const check = validateCoordinates(customOrigin, true);
-      if (!check.valid) {
-        setErrorMessage(`Origin invalid: ${check.error}`);
-        return;
-      }
-      resolvedOrigin = {
-        lat: parseFloat(customOrigin.lat),
-        lng: parseFloat(customOrigin.lng),
-        label: customOrigin.label || `${customOrigin.lat}, ${customOrigin.lng}`
-      };
+    if (!origin || !destination) {
+      setErrorMessage(!origin ? 'Choose where you are starting from.' : 'Choose where you are going.');
+      return;
     }
-
-    if (destType === 'hub') {
-      if (!destHub) {
-        setErrorMessage('Please select an operational hub as destination.');
-        return;
-      }
-      resolvedDest = {
-        lat: parseFloat(destHub.latitude),
-        lng: parseFloat(destHub.longitude),
-        label: destHub.location_name
-      };
-    } else {
-      const check = validateCoordinates(customDest, true);
-      if (!check.valid) {
-        setErrorMessage(`Destination invalid: ${check.error}`);
-        return;
-      }
-      resolvedDest = {
-        lat: parseFloat(customDest.lat),
-        lng: parseFloat(customDest.lng),
-        label: customDest.label || `${customDest.lat}, ${customDest.lng}`
-      };
-    }
-
-    if (resolvedOrigin.lat === resolvedDest.lat && resolvedOrigin.lng === resolvedDest.lng) {
-      setErrorMessage('Origin and Destination cannot be the same coordinates.');
+    if (Math.abs(origin.lat - destination.lat) < 1e-5 && Math.abs(origin.lng - destination.lng) < 1e-5) {
+      setErrorMessage('Start and destination are the same place.');
       return;
     }
 
@@ -141,8 +129,8 @@ export default function RoutePanel({
       }, 30000);
 
       const result = await calculateRoute({
-        origin: { lat: resolvedOrigin.lat, lng: resolvedOrigin.lng },
-        destination: { lat: resolvedDest.lat, lng: resolvedDest.lng },
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
         computeAlternativeRoutes: true
       });
 
@@ -153,24 +141,14 @@ export default function RoutePanel({
         return;
       }
 
-      // Compute security exposure for all returned route alternatives independently
-      const evaluatedRoutes = result.routes.map((route) => {
-        const exposure = calculateRouteExposure({
-          routeCoordinates: route.coordinates,
-          incidents: events,
-          corridorDistanceKm: corridorBufferKm
-        });
-        return {
-          ...route,
-          exposure
-        };
-      });
-
+      const incidents = filterByLookback(events, lookbackDays(lookback));
       onRouteCalculated?.({
-        origin: resolvedOrigin,
-        destination: resolvedDest,
-        routes: evaluatedRoutes,
+        tripId: `${Date.now()}`,
+        origin,
+        destination,
+        routes: result.routes.map(route => evaluateRoute(route, incidents, corridorBufferKm)),
         corridorBufferKm,
+        lookback,
         source: result.source,
         isEstimate: Boolean(result.isEstimate)
       });
@@ -185,34 +163,56 @@ export default function RoutePanel({
     }
   };
 
-  // Re-evaluate routes when buffer distance changes
-  const handleBufferChange = (newBuffer) => {
-    setCorridorBufferKm(newBuffer);
-    if (activeRouteData?.routes) {
-      const reEvaluated = activeRouteData.routes.map(r => ({
-        ...r,
-        exposure: calculateRouteExposure({
-          routeCoordinates: r.coordinates,
-          incidents: events,
-          corridorDistanceKm: newBuffer
-        })
-      }));
-      onRouteCalculated?.({
-        ...activeRouteData,
-        routes: reEvaluated,
-        corridorBufferKm: newBuffer
-      }, { keepSelection: true });
-    }
+  // Re-score every route when the corridor width or look-back period changes
+  const reEvaluate = (buffer, lookbackId) => {
+    setCorridorBufferKm(buffer);
+    setLookback(lookbackId);
+    const incidents = filterByLookback(events, lookbackDays(lookbackId));
+    onUpdateRouteData?.(prev => prev && ({
+      ...prev,
+      corridorBufferKm: buffer,
+      lookback: lookbackId,
+      routes: prev.routes.map(r => evaluateRoute(r, incidents, buffer))
+    }));
   };
 
   const selectedRoute = activeRouteData?.routes?.[selectedRouteIndex] || activeRouteData?.routes?.[0];
   const exposure = selectedRoute?.exposure;
 
+  // Find the LGAs along the selected route (once per route) to build the journey stretches
+  const labelledRef = useRef(new Set());
+  const tripId = activeRouteData?.tripId;
+  const selectedRouteId = selectedRoute?.id;
+  useEffect(() => {
+    if (!tripId || !selectedRouteId || activeRouteData?.isEstimate) return;
+    const key = `${tripId}:${selectedRouteId}`;
+    const route = activeRouteData.routes.find(r => r.id === selectedRouteId);
+    if (!route || route.samples || labelledRef.current.has(key)) return;
+    labelledRef.current.add(key);
+
+    labelRouteSamples(sampleRoute(route.coordinates)).then(samples => {
+      onUpdateRouteData?.(prev => {
+        if (!prev || prev.tripId !== tripId) return prev;
+        const incidents = filterByLookback(eventsRef.current, lookbackDays(prev.lookback));
+        return {
+          ...prev,
+          routes: prev.routes.map(r => (r.id === selectedRouteId ? evaluateRoute({ ...r, samples }, incidents, prev.corridorBufferKm) : r))
+        };
+      });
+    });
+  }, [tripId, selectedRouteId, activeRouteData, onUpdateRouteData]);
+
   const comparison = useMemo(() => compareRoutes(activeRouteData?.routes || []), [activeRouteData]);
-  const sortedHubs = useMemo(
-    () => [...hubs].sort((a, b) => String(a.location_name || '').localeCompare(String(b.location_name || ''))),
-    [hubs]
-  );
+  const journey = useMemo(() => (
+    selectedRoute?.stretches
+      ? summarizeJourney(selectedRoute.stretches, { corridorDistanceKm: activeRouteData.corridorBufferKm, lookbackLabel, operatingStates })
+      : null
+  ), [selectedRoute, activeRouteData, lookbackLabel, operatingStates]);
+  const mapsUrl = useMemo(() => (
+    selectedRoute && activeRouteData?.origin && activeRouteData?.destination
+      ? googleMapsDirectionsUrl(activeRouteData.origin, activeRouteData.destination, selectedRoute.coordinates)
+      : null
+  ), [selectedRoute, activeRouteData]);
 
   if (!isOpen) return null;
 
@@ -232,7 +232,7 @@ export default function RoutePanel({
                 {activeRouteData?.source ? activeRouteData.source.toUpperCase() : 'ONE SECURE'}
               </span>
             </h2>
-            <p className="text-xs text-gray-400">Security corridor risk evaluation</p>
+            <p className="text-xs text-gray-400">Plan a trip anywhere in Nigeria and see the security picture along the road</p>
           </div>
         </div>
 
@@ -248,160 +248,63 @@ export default function RoutePanel({
       {/* Main Body */}
       <div className="p-5 flex-1 overflow-y-auto space-y-4 custom-scrollbar text-sm">
 
-        {/* Origin / Destination Inputs */}
+        {/* Start / Destination */}
         <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700/60 space-y-3">
-          
-          {/* Origin */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-gray-300">
-              <span className="flex items-center gap-1.5 font-medium text-green-400">
-                <StepNumber n={1} /> Start from
-              </span>
-              <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setOriginType('hub')}
-                  className={`px-2 py-0.5 rounded transition-colors ${originType === 'hub' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
-                >
-                  Hub
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOriginType('custom')}
-                  className={`px-2 py-0.5 rounded transition-colors ${originType === 'custom' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
-                >
-                  Custom
-                </button>
-              </div>
-            </div>
+          <RoutePlaceInput
+            label="Starting from"
+            step={1}
+            value={origin}
+            onChange={setOrigin}
+            hubs={hubs}
+            allowCurrentLocation
+            isPicking={pickingFor === 'origin'}
+            onTogglePick={() => onTogglePick?.('origin')}
+            pickedPoint={routePick?.target === 'origin' ? routePick : null}
+          />
 
-            {originType === 'hub' ? (
-              <select
-                value={effectiveOriginHubId}
-                onChange={(e) => setSelectedOriginHubId(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
-              >
-                <option value="">Select Operational Hub...</option>
-                {sortedHubs.map(h => (
-                  <option key={`orig-hub-${h.id}`} value={h.id}>
-                    {h.location_name} ({h.state}) - {h.isThreatened ? '⚠️ Threatened' : '✓ Safe'}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="Lat (e.g. 9.076)"
-                  value={customOrigin.lat}
-                  onChange={(e) => setCustomOrigin({ ...customOrigin, lat: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
-                />
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="Lng (e.g. 7.398)"
-                  value={customOrigin.lng}
-                  onChange={(e) => setCustomOrigin({ ...customOrigin, lng: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Swap Button */}
           <div className="flex justify-center -my-1">
             <button
               type="button"
               onClick={handleSwap}
               className="p-1.5 rounded-full bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors border border-gray-600 shadow"
-              title="Swap Origin and Destination"
+              title="Swap start and destination"
+              aria-label="Swap start and destination"
             >
               <ArrowDownUp size={14} />
             </button>
           </div>
 
-          {/* Destination */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-gray-300">
-              <span className="flex items-center gap-1.5 font-medium text-green-400">
-                <StepNumber n={2} /> Going to
+          <RoutePlaceInput
+            label="Going to"
+            step={2}
+            value={destination}
+            onChange={setDestination}
+            hubs={hubs}
+            isPicking={pickingFor === 'destination'}
+            onTogglePick={() => onTogglePick?.('destination')}
+            pickedPoint={routePick?.target === 'destination' ? routePick : null}
+          />
+
+          {/* Corridor width and look-back period */}
+          <div className="pt-2 border-t border-gray-700/60 space-y-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-gray-400 flex items-center gap-1.5 font-medium">
+                <StepNumber n={3} />
+                <span title="Incidents within this distance of the road are counted">Incidents within</span>
               </span>
-              <div className="flex items-center gap-1 bg-gray-900/80 p-0.5 rounded border border-gray-700 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setDestType('hub')}
-                  className={`px-2 py-0.5 rounded transition-colors ${destType === 'hub' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
-                >
-                  Hub
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDestType('custom')}
-                  className={`px-2 py-0.5 rounded transition-colors ${destType === 'custom' ? 'bg-green-600 text-white font-medium' : 'text-gray-400 hover:text-white'}`}
-                >
-                  Custom
-                </button>
-              </div>
+              <Segmented
+                options={BUFFER_OPTIONS.map(d => ({ id: d, label: `${d}km` }))}
+                value={corridorBufferKm}
+                onChange={(d) => reEvaluate(d, lookback)}
+              />
             </div>
-
-            {destType === 'hub' ? (
-              <select
-                value={effectiveDestHubId}
-                onChange={(e) => setSelectedDestHubId(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
-              >
-                <option value="">Select Operational Hub...</option>
-                {sortedHubs.map(h => (
-                  <option key={`dest-hub-${h.id}`} value={h.id}>
-                    {h.location_name} ({h.state}) - {h.isThreatened ? '⚠️ Threatened' : '✓ Safe'}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="Lat (e.g. 9.615)"
-                  value={customDest.lat}
-                  onChange={(e) => setCustomDest({ ...customDest, lat: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
-                />
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="Lng (e.g. 6.547)"
-                  value={customDest.lng}
-                  onChange={(e) => setCustomDest({ ...customDest, lng: e.target.value })}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-green-500"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Corridor Buffer Distance Selector */}
-          <div className="pt-2 border-t border-gray-700/60 flex items-center justify-between text-xs">
-            <span className="text-gray-400 flex items-center gap-1.5 font-medium">
-              <StepNumber n={3} />
-              <span title="Incidents within this distance of the road are counted as route threats">Check incidents within</span>
-            </span>
-            <div className="flex items-center gap-1">
-              {[2, 5, 10, 25].map(dist => (
-                <button
-                  key={`buffer-${dist}`}
-                  type="button"
-                  onClick={() => handleBufferChange(dist)}
-                  className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${
-                    corridorBufferKm === dist 
-                      ? 'bg-green-600 text-white' 
-                      : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
-                  }`}
-                >
-                  {dist}km
-                </button>
-              ))}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-gray-400 font-medium pl-5">in the last</span>
+              <Segmented
+                options={LOOKBACK_OPTIONS.map(o => ({ id: o.id, label: o.label }))}
+                value={lookback}
+                onChange={(id) => reEvaluate(corridorBufferKm, id)}
+              />
             </div>
           </div>
 
@@ -420,7 +323,7 @@ export default function RoutePanel({
                 </>
               ) : (
                 <>
-                  <Car size={16} /> Compute Driving Routes
+                  <Car size={16} /> Check routes
                 </>
               )}
             </button>
@@ -430,7 +333,8 @@ export default function RoutePanel({
                 type="button"
                 onClick={onClearRoute}
                 className="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg border border-gray-700 transition-colors"
-                title="Clear Active Route"
+                title="Clear route"
+                aria-label="Clear route"
               >
                 <RotateCcw size={16} />
               </button>
@@ -528,19 +432,119 @@ export default function RoutePanel({
               </div>
             </div>
 
-            {/* Selected Route Security Exposure Deep-Dive */}
-            {exposure && (
-              <div className="bg-gray-800/60 p-4 rounded-xl border border-gray-700 space-y-4">
-                <div className="flex items-center justify-between">
+            {/* Journey guidance for the selected route, stretch by stretch */}
+            {selectedRoute && (
+              <div className="bg-gray-800/60 p-4 rounded-xl border border-gray-700 space-y-3">
+                <div className="flex items-center justify-between gap-2">
                   <h3 className="font-bold text-white text-sm flex items-center gap-2">
-                    <ShieldAlert size={16} className={exposure.riskScore >= 35 ? 'text-red-400' : 'text-green-400'} />
-                    Route {routeLetter(selectedRouteIndex)} threat profile
+                    <Navigation size={16} className="text-green-400" />
+                    Route {routeLetter(selectedRouteIndex)} journey guide
                   </h3>
+                  {mapsUrl && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-gray-950 bg-green-400 hover:bg-green-300 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap"
+                      title="Open this route in Google Maps for turn-by-turn directions"
+                    >
+                      Start in Google Maps <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+
+                {activeRouteData.isEstimate ? (
+                  <p className="text-xs text-gray-400">Journey stretches need a road route. Retry when road routing is available.</p>
+                ) : !selectedRoute.stretches ? (
+                  <p className="text-xs text-gray-300 flex items-center gap-2">
+                    <Loader2 size={13} className="animate-spin" /> Mapping the LGAs along the route…
+                  </p>
+                ) : (
+                  <>
+                    {journey && (
+                      <div className={`p-3 rounded-lg border text-xs leading-relaxed ${
+                        selectedRoute.stretches.some(st => st.incidents.length)
+                          ? 'border-orange-500/30 bg-orange-500/10 text-orange-50'
+                          : 'border-gray-600 bg-gray-900/60 text-gray-200'
+                      }`}>
+                        <p className="font-semibold">{journey.headline}</p>
+                        {journey.advice && <p className="mt-1 opacity-90">{journey.advice}</p>}
+                      </div>
+                    )}
+                    {journey?.outsideStates.length > 0 && (
+                      <p className="text-[11px] text-yellow-200/90 flex items-start gap-1.5">
+                        <Info size={13} className="shrink-0 mt-px" />
+                        This route passes through {journey.outsideStates.join(', ')}, outside OAF&apos;s operating states. Incident records there may be incomplete.
+                      </p>
+                    )}
+
+                    <ol className="space-y-1.5" aria-label="Journey stretches in travel order">
+                      {selectedRoute.stretches.map((st, i) => {
+                        const color = riskColor(st.exposure.riskLevel);
+                        const count = st.incidents.length;
+                        return (
+                          <li key={`${st.startKm}-${i}`} className="journey-stretch rounded-lg bg-gray-900/70 border border-gray-800 overflow-hidden">
+                            <details className="group">
+                              <summary className={`flex items-stretch gap-2.5 ${count ? 'cursor-pointer' : 'cursor-default'} list-none`}>
+                                <span className="w-1.5 shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
+                                <span className="flex-1 min-w-0 py-2 pr-2.5">
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-mono text-gray-400 shrink-0">km {st.startKm}–{st.endKm}</span>
+                                    <span className={`text-[11px] font-semibold ${count ? 'text-white' : 'text-gray-500'}`}>
+                                      {count ? `${count} incident${count === 1 ? '' : 's'} · ${st.exposure.riskLevel.toLowerCase()}` : 'No incidents'}
+                                    </span>
+                                  </span>
+                                  <span className="block text-xs text-gray-200 truncate" title={st.label}>{st.label}</span>
+                                  {st.topTypes.length > 0 && (
+                                    <span className="block text-[11px] text-gray-400 truncate">
+                                      {st.topTypes.map(t => `${t.count} ${t.type.toLowerCase()}`).join(', ')}
+                                      <span className="text-gray-500 group-open:hidden"> · show</span>
+                                    </span>
+                                  )}
+                                </span>
+                              </summary>
+                              {count > 0 && (
+                                <ul className="px-3 pb-2 space-y-1">
+                                  {st.incidents.map(inc => (
+                                    <li key={inc.event_id || inc.id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => onSelectEvent?.(inc)}
+                                        className="w-full text-left text-[11px] text-gray-300 hover:text-white flex items-center justify-between gap-2 py-0.5"
+                                      >
+                                        <span className="truncate">
+                                          {inc.event_type || 'Incident'} · {inc.date ? new Date(inc.date).toLocaleDateString() : 'No date'}
+                                          {inc.lga ? ` · ${inc.lga}` : ''}
+                                        </span>
+                                        <span className="font-mono text-green-400 shrink-0">{inc.distanceToRouteKm} km off road</span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </details>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Score details for the selected route */}
+            {exposure && (
+              <details className="bg-gray-800/60 rounded-xl border border-gray-700">
+                <summary className="px-4 py-3 cursor-pointer text-sm font-bold text-white flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <ShieldAlert size={16} className={exposure.riskScore >= 35 ? 'text-red-400' : 'text-green-400'} />
+                    Route {routeLetter(selectedRouteIndex)} score details
+                  </span>
                   <span className={`text-xs font-bold px-2.5 py-1 rounded-md border ${exposure.riskColor}`}>
                     Score: {exposure.riskScore}/100
                   </span>
-                </div>
-
+                </summary>
+              <div className="px-4 pb-4 space-y-4">
                 {/* Metrics Breakdown */}
                 <div className="grid grid-cols-4 gap-2 text-center">
                   <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
@@ -565,7 +569,7 @@ export default function RoutePanel({
                 <div className="text-xs bg-gray-900/60 p-3 rounded-lg border border-gray-800 space-y-1.5 text-gray-400">
                   <p className="font-semibold text-gray-300">Auditable Assessment Criteria:</p>
                   <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-                    <li>Cross-track distance computed with Turf.js: within {corridorBufferKm}km corridor.</li>
+                    <li>Distance from the road computed with Turf.js: within {corridorBufferKm}km of the route, incidents from the last {lookbackLabel}.</li>
                     <li>Severity weighting: Critical (28pt), High (14pt), Med/Low (5pt).</li>
                     <li>Casualty and abduction factor weighted into composite score.</li>
                     <li>Verification: {exposure.verifiedCount} of {exposure.totalCount} verified by formal sources.</li>
@@ -634,6 +638,7 @@ export default function RoutePanel({
                 )}
 
               </div>
+              </details>
             )}
 
           </div>
@@ -657,5 +662,25 @@ function Tag({ className, children }) {
     <span className={`text-[10px] font-bold px-1.5 py-px rounded border ${className}`}>
       {children}
     </span>
+  );
+}
+
+function Segmented({ options, value, onChange }) {
+  return (
+    <div className="flex items-center gap-1">
+      {options.map(o => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          aria-pressed={value === o.id}
+          className={`px-2 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${
+            value === o.id ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

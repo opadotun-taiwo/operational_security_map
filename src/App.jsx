@@ -29,8 +29,11 @@ function App() {
 
   // Incident reporting
   const [isReportOpen, setIsReportOpen] = useState(false);
-  const [isPickingLocation, setIsPickingLocation] = useState(false);
+  // Map-click picking is shared: 'report' (incident form), 'origin' / 'destination' (route planner)
+  const [pickingFor, setPickingFor] = useState(null);
   const [pickedLocation, setPickedLocation] = useState(null);
+  const [routePick, setRoutePick] = useState(null);
+  const togglePicking = (target) => setPickingFor(current => (current === target ? null : target));
   const [focusRequest, setFocusRequest] = useState(null);
   // Incidents reported in this session stay visible even outside the hub-area filter
   const [reportedIds, setReportedIds] = useState([]);
@@ -101,6 +104,8 @@ function App() {
     () => annotateHubThreats(rawEvents.filter(e => isInOperatingStates(e, operatingStates)), rawHubs),
     [rawEvents, rawHubs, operatingStates]
   );
+  // Route checks look at incidents in every state the road passes through, not only operating states
+  const routeIncidents = useMemo(() => annotateHubThreats(rawEvents, rawHubs).events, [rawEvents, rawHubs]);
   const existingEventIds = useMemo(() => rawEvents.map(e => e.event_id).filter(Boolean), [rawEvents]);
 
   const uniqueStates = useMemo(() => {
@@ -251,8 +256,13 @@ function App() {
             isOpen={isRoutePanelOpen}
             onClose={() => setIsRoutePanelOpen(false)}
             hubs={hubs}
-            events={filteredEvents}
+            events={routeIncidents}
+            operatingStates={operatingStates.all}
             activeRouteData={activeRouteData}
+            onUpdateRouteData={setActiveRouteData}
+            pickingFor={pickingFor}
+            onTogglePick={togglePicking}
+            routePick={routePick}
             selectedRouteIndex={selectedRouteIndex}
             onSelectRouteIndex={setSelectedRouteIndex}
             onRouteCalculated={(routePayload, { keepSelection = false } = {}) => {
@@ -283,10 +293,14 @@ function App() {
             onSelectRouteIndex={setSelectedRouteIndex}
             hotspotSettings={hotspotSettings}
             setHotspotSettings={setHotspotSettings}
-            isPickingLocation={isPickingLocation}
+            isPickingLocation={Boolean(pickingFor)}
+            pickPrompt={pickingFor === 'origin' ? 'Click the map where the trip starts'
+              : pickingFor === 'destination' ? 'Click the map where you are going'
+              : 'Click the map where the incident happened'}
             onPickLocation={(location) => {
-              setPickedLocation(location);
-              setIsPickingLocation(false);
+              if (pickingFor === 'report') setPickedLocation(location);
+              else setRoutePick({ ...location, target: pickingFor, at: Date.now() });
+              setPickingFor(null);
             }}
             pickedLocation={isReportOpen ? pickedLocation : null}
             focusRequest={focusRequest}
@@ -312,15 +326,15 @@ function App() {
             <ReportIncidentPanel
               onClose={() => {
                 setIsReportOpen(false);
-                setIsPickingLocation(false);
+                setPickingFor(null);
                 setPickedLocation(null);
               }}
               hubs={hubs}
               states={operatingStates.all}
               eventTypes={uniqueEventTypes}
               existingEventIds={existingEventIds}
-              isPickingLocation={isPickingLocation}
-              onStartPicking={() => setIsPickingLocation(p => !p)}
+              isPickingLocation={pickingFor === 'report'}
+              onStartPicking={() => togglePicking('report')}
               pickedLocation={pickedLocation}
               onSubmitted={async (savedRows) => {
                 const rows = (Array.isArray(savedRows) ? savedRows : [savedRows]).filter(Boolean);

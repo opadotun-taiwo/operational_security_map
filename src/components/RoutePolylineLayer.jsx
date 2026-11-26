@@ -3,8 +3,8 @@ import { useMap } from '@vis.gl/react-google-maps';
 import { ALTERNATIVE_ROUTE_COLOR, riskColor } from '../utils/routeComparison';
 
 /**
- * Renders route alternatives on Google Maps. The selected route is drawn on top in its
- * corridor risk color with a dark casing; alternatives are muted grey lines that
+ * Renders route alternatives on Google Maps. The selected route is drawn on top with a
+ * dark casing, coloured stretch by stretch by corridor risk; alternatives are muted grey lines that
  * highlight on hover and become the selected route when clicked.
  */
 export default function RoutePolylineLayer({
@@ -54,15 +54,21 @@ export default function RoutePolylineLayer({
           zIndex: 49,
           clickable: false
         }));
-        polylinesRef.current.push(new maps.Polyline({
-          path,
-          map,
-          strokeColor: riskColor(route.exposure?.riskLevel),
-          strokeOpacity: 1,
-          strokeWeight: 6,
-          zIndex: 50,
-          clickable: false
-        }));
+        // Once the journey stretches are known, colour each part of the road by its own risk
+        const pieces = route.stretches?.length
+          ? route.stretches.map(st => ({ coords: st.coordinates, level: st.exposure?.riskLevel }))
+          : [{ coords: route.coordinates, level: route.exposure?.riskLevel }];
+        for (const piece of pieces) {
+          polylinesRef.current.push(new maps.Polyline({
+            path: piece.coords.map(([lng, lat]) => ({ lat, lng })),
+            map,
+            strokeColor: riskColor(piece.level),
+            strokeOpacity: 1,
+            strokeWeight: 6,
+            zIndex: 50,
+            clickable: false
+          }));
+        }
         continue;
       }
 

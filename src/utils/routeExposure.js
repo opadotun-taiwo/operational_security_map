@@ -125,6 +125,12 @@ export function calculateRouteExposure({
   // Build Turf LineString
   const routeLine = turf.lineString(routeCoordinates);
   const now = Date.now();
+
+  // Cheap bounding-box pre-filter (thousands of incidents vs. long routes): skip anything
+  // clearly further than the corridor before running the exact distance calculation
+  const [minLng, minLat, maxLng, maxLat] = turf.bbox(routeLine);
+  const padLat = corridorDistanceKm / 110;
+  const padLng = corridorDistanceKm / (111 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180));
   const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
 
   const corridorIncidents = [];
@@ -142,6 +148,7 @@ export function calculateRouteExposure({
     const lng = parseFloat(incident.longitude);
 
     if (isNaN(lat) || isNaN(lng)) continue;
+    if (lat < minLat - padLat || lat > maxLat + padLat || lng < minLng - padLng || lng > maxLng + padLng) continue;
 
     const pt = turf.point([lng, lat]);
     const distance = turf.pointToLineDistance(pt, routeLine, { units: 'kilometers' });
@@ -163,9 +170,13 @@ export function calculateRouteExposure({
       totalInjured += incident.injured || 0;
       totalAbducted += incident.abducted || 0;
 
+      // How far along the route (from the start) the incident sits, for journey stretches
+      const alongRouteKm = turf.nearestPointOnLine(routeLine, pt, { units: 'kilometers' }).properties.location;
+
       corridorIncidents.push({
         ...incident,
         distanceToRouteKm: Math.round(distance * 10) / 10,
+        alongRouteKm: Math.round(alongRouteKm * 10) / 10,
         isRecentRouteIncident: isRecent
       });
     }

@@ -46,6 +46,7 @@ function MapContent({
   hotspotSettings,
   setHotspotSettings,
   isPickingLocation = false,
+  pickPrompt = 'Click the map',
   onPickLocation,
   pickedLocation,
   focusRequest
@@ -339,7 +340,7 @@ function MapContent({
 
       {isPickingLocation && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 bg-yellow-500 text-gray-950 text-sm font-semibold px-4 py-2 rounded-full shadow-2xl whitespace-nowrap pointer-events-none">
-          Click the map where the incident happened
+          {pickPrompt}
         </div>
       )}
 
@@ -397,6 +398,7 @@ export default function MapArea({
   hotspotSettings,
   setHotspotSettings,
   isPickingLocation,
+  pickPrompt,
   onPickLocation,
   pickedLocation,
   focusRequest
@@ -448,6 +450,7 @@ export default function MapArea({
             hotspotSettings={hotspotSettings}
             setHotspotSettings={setHotspotSettings}
             isPickingLocation={isPickingLocation}
+            pickPrompt={pickPrompt}
             onPickLocation={onPickLocation}
             pickedLocation={pickedLocation}
             focusRequest={focusRequest}
