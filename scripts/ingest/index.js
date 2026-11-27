@@ -158,6 +158,7 @@ function writeSummary(result, { quiet = false } = {}) {
     `| ${result.found} | ${result.added.length} | ${result.duplicates.length} | ${result.unplaced.length} | ${result.rejected.length} |`,
     ''
   ];
+  if (typeof result.totalRecords === 'number') lines.push(`Records in the incident database now: **${result.totalRecords.toLocaleString('en-US')}**`, '');
   if (result.added.length) {
     lines.push(`### ${result.dryRun ? 'Would add' : 'Added'}`, '', '| Event ID | Date | State | LGA | Type | Severity | Placed at | Source |', '|---|---|---|---|---|---|---|---|');
     for (const r of result.added) {
@@ -250,7 +251,17 @@ export async function run({ ai, supabase, mapsKey, now = Date.now(), dryRun = fa
     if (res.error) throw new Error(`Saving incidents failed: ${res.error.message}`);
   }
 
+  // Total rows after the run, so the summary shows the table growing day by day
+  let totalRecords = null;
+  try {
+    const counted = await supabase.from('security_events').select('event_id', { count: 'exact', head: true });
+    if (typeof counted?.count === 'number') totalRecords = counted.count;
+  } catch {
+    totalRecords = null;
+  }
+
   const result = {
+    totalRecords,
     dryRun,
     model: ai.name,
     window: { from: fromDate, to: toDate },

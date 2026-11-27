@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, AlertCircle, Skull } from 'lucide-react';
+import { Activity, AlertCircle, Skull, RefreshCw } from 'lucide-react';
 
 const StatCard = ({ title, value, icon: Icon, colorClass }) => (
   <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-800 flex items-center justify-between hover:bg-gray-800/80 transition-colors">
@@ -13,7 +13,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
   </div>
 );
 
-export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, includesRouteCorridor = false, onShowAll, isMobileOpen = false, operatingStates, isAnyHubThreatened, threateningEvents, onEventClick }) {
+export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, includesRouteCorridor = false, onShowAll, isMobileOpen = false, operatingStates, totalRecords, period, lastUpdated, refreshError, onRefresh, isAnyHubThreatened, threateningEvents, onEventClick }) {
   const totalIncidents = events.length;
   const totalFatalities = events.reduce((sum, e) => sum + (e.fatalities || 0), 0);
   const totalInjured = events.reduce((sum, e) => sum + (e.injured || 0), 0);
@@ -64,6 +64,25 @@ export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, inclu
 
         <div className="pt-2">
           <div className="text-xs text-gray-400 bg-gray-800/40 border border-gray-800 rounded-lg px-3 py-2 leading-relaxed">
+            <div className="flex items-center justify-between gap-2 mb-1.5 pb-1.5 border-b border-gray-800">
+              <span>
+                {lastUpdated ? <>Updated <span className="text-gray-200">{lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></> : 'Loading…'}
+                {typeof totalRecords === 'number' && <> · <span className="text-gray-200">{totalRecords.toLocaleString()}</span> records in database</>}
+              </span>
+              {onRefresh && (
+                <button onClick={onRefresh} className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700" title="Reload incidents now (also refreshes every 10 minutes)" aria-label="Reload incidents">
+                  <RefreshCw size={12} />
+                </button>
+              )}
+            </div>
+            {refreshError && <p className="text-yellow-300 mb-1.5">Couldn't refresh: showing the last loaded data.</p>}
+            <p className="mb-1.5 pb-1.5 border-b border-gray-800">
+              <span className="text-gray-300 font-medium">Period:</span>{' '}
+              {period?.from || period?.to
+                ? <>{period.from || 'start'} to {period.to || 'today'}</>
+                : 'all dates'}
+              {' · '}<span className="text-gray-300 font-medium">Source:</span> incident database
+            </p>
             {operatingStates?.all?.length > 0 && (
               <p className="mb-1.5 pb-1.5 border-b border-gray-800">
                 <span className="text-gray-300 font-medium">States shown:</span>{' '}

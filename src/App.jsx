@@ -10,15 +10,19 @@ import Tutorial from './components/Tutorial';
 import ReportIncidentPanel from './components/ReportIncidentPanel';
 import { Loader2 } from 'lucide-react';
 import { annotateHubThreats } from './utils/hubThreats';
+import { fetchAllRows } from './services/fetchAllRows';
 import { getOperatingStates, isInOperatingStates, canonicalState } from './utils/operatingStates';
 
 // Default map scope: only incidents in the operating area around hubs are drawn
 const DEFAULT_HUB_RADIUS_KM = 10;
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 function App() {
   // Raw rows from Supabase; `events`/`hubs` below are the derived, annotated versions
   const [rawEvents, setRawEvents] = useState([]);
   const [rawHubs, setRawHubs] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [refreshError, setRefreshError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -70,23 +74,25 @@ function App() {
   });
 
   // Loads incidents and hubs. Re-run after a new incident report is submitted.
-  const loadData = useCallback(async () => {
+  // `background` refreshes keep the current data on screen if the reload fails
+  const loadData = useCallback(async ({ background = false } = {}) => {
     try {
-      const [eventsResponse, hubsResponse] = await Promise.all([
-        supabase.from('security_events').select('*'),
-        supabase.from('one_acre_fund_locations').select('*')
+      // Paged: a plain select stops at Supabase's 1,000-row limit and drops newer incidents
+      const [events, hubsRows] = await Promise.all([
+        fetchAllRows(supabase, 'security_events', { orderBy: 'event_id' }),
+        fetchAllRows(supabase, 'one_acre_fund_locations', { orderBy: 'id' })
       ]);
 
-      if (eventsResponse.error) throw eventsResponse.error;
-      if (hubsResponse.error) throw hubsResponse.error;
-
-      const loaded = { events: eventsResponse.data || [], hubs: hubsResponse.data || [] };
+      const loaded = { events, hubs: hubsRows };
       setRawEvents(loaded.events);
       setRawHubs(loaded.hubs);
+      setLastUpdated(new Date());
+      setRefreshError(null);
       return loaded;
     } catch (err) {
       console.error('Error fetching data:', err);
-      setError(err.message);
+      if (background) setRefreshError(err.message);
+      else setError(err.message);
       return null;
     } finally {
       setLoading(false);
@@ -95,7 +101,15 @@ function App() {
 
   useEffect(() => {
     // State is only set after the fetch resolves, never synchronously in the effect
-    Promise.resolve().then(loadData);
+    Promise.resolve().then(() => loadData());
+  }, [loadData]);
+
+  // Keep the map current: reload every 10 minutes while the page is visible
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') loadData({ background: true });
+    }, REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [loadData]);
 
   // Only incidents in hub states plus the expansion states are shown anywhere in the app
@@ -227,6 +241,11 @@ function App() {
           includesRouteCorridor={Boolean(selectedCorridorIncidents?.length)}
           onShowAll={() => setFilters(f => ({ ...f, hubRadiusKm: 'all' }))}
           operatingStates={operatingStates}
+          totalRecords={rawEvents.length}
+          period={{ from: filters.dateFrom, to: filters.dateTo }}
+          lastUpdated={lastUpdated}
+          refreshError={refreshError}
+          onRefresh={() => loadData({ background: true })}
           isAnyHubThreatened={isAnyHubThreatened}
           threateningEvents={threateningEvents}
           onEventClick={(event) => {
@@ -337,7 +356,7 @@ function App() {
               existingEventIds={existingEventIds}
               incidents={events}
               allIncidents={rawEvents}
-              onReviewed={() => loadData()}
+              onReviewed={() => loadData({ background: true })}
               onShowOnMap={(incident) => setFocusRequest({ lat: parseFloat(incident.latitude), lng: parseFloat(incident.longitude), at: Date.now() })}
               defaultDateFrom={filters.dateFrom}
               defaultDateTo={filters.dateTo}
@@ -346,7 +365,7 @@ function App() {
               pickedLocation={pickedLocation}
               onSubmitted={async (savedRows) => {
                 const rows = (Array.isArray(savedRows) ? savedRows : [savedRows]).filter(Boolean);
-                const refreshed = await loadData();
+                const refreshed = await loadData({ background: true });
                 const ids = rows.map(r => r.event_id || r.id).filter(id => id !== undefined);
                 setReportedIds(prev => [...prev, ...ids]);
                 setPickedLocation(null);
