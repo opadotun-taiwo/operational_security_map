@@ -13,7 +13,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass }) => (
   </div>
 );
 
-export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, includesRouteCorridor = false, onShowAll, isMobileOpen = false, operatingStates, totalRecords, period, lastUpdated, refreshError, onRefresh, isAnyHubThreatened, threateningEvents, onEventClick }) {
+export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, includesRouteCorridor = false, onShowAll, isMobileOpen = false, operatingStates, totalRecords, databaseCount, period, lastUpdated, refreshError, onRefresh, isAnyHubThreatened, threateningEvents, onEventClick }) {
   const totalIncidents = events.length;
   const totalFatalities = events.reduce((sum, e) => sum + (e.fatalities || 0), 0);
   const totalInjured = events.reduce((sum, e) => sum + (e.injured || 0), 0);
@@ -76,6 +76,9 @@ export default function Sidebar({ events, totalFilteredCount, hubRadiusKm, inclu
               )}
             </div>
             {refreshError && <p className="text-yellow-300 mb-1.5">Couldn't refresh: showing the last loaded data.</p>}
+            {typeof databaseCount === 'number' && databaseCount > totalRecords && (
+              <p className="text-yellow-300 mb-1.5">Only {totalRecords.toLocaleString()} of {databaseCount.toLocaleString()} records could be loaded. Try the refresh button.</p>
+            )}
             <p className="mb-1.5 pb-1.5 border-b border-gray-800">
               <span className="text-gray-300 font-medium">Period:</span>{' '}
               {period?.from || period?.to

@@ -22,6 +22,7 @@ function App() {
   const [rawEvents, setRawEvents] = useState([]);
   const [rawHubs, setRawHubs] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [databaseCount, setDatabaseCount] = useState(null);
   const [refreshError, setRefreshError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -86,6 +87,7 @@ function App() {
       const loaded = { events, hubs: hubsRows };
       setRawEvents(loaded.events);
       setRawHubs(loaded.hubs);
+      setDatabaseCount(events.totalCount ?? events.length);
       setLastUpdated(new Date());
       setRefreshError(null);
       return loaded;
@@ -242,6 +244,7 @@ function App() {
           onShowAll={() => setFilters(f => ({ ...f, hubRadiusKm: 'all' }))}
           operatingStates={operatingStates}
           totalRecords={rawEvents.length}
+          databaseCount={databaseCount}
           period={{ from: filters.dateFrom, to: filters.dateTo }}
           lastUpdated={lastUpdated}
           refreshError={refreshError}
