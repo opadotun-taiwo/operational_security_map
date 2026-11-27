@@ -76,8 +76,7 @@ Rules:
 - description: 1-2 factual sentences: what happened, where, and the impact.
 - source / source_url / source_date: the best original report.
 - confidence: High (official or several reliable outlets), Medium (one reliable outlet), Low (unclear or social media).
-- verification_status: Verified (confirmed by an official/security source), Partially Verified (several
-  independent outlets), Unverified (single report), Disputed (conflicting accounts).
+  (Verification is done later by the risk team, not here.)
 
 Research notes:
 """

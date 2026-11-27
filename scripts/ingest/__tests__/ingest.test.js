@@ -49,7 +49,7 @@ describe('extraction schema', () => {
     expect(item.properties).not.toHaveProperty('latitude');
     expect(item.properties).not.toHaveProperty('event_id');
     expect(item.properties.event_type.enum).toContain('Farmer-Herder Conflict');
-    expect(item.properties.verification_status.enum).toContain('Disputed');
+    expect(item.properties).not.toHaveProperty('verification_status'); // set by the risk team, not the AI
   });
 });
 
@@ -64,6 +64,10 @@ describe('cleanCandidate', () => {
     expect(cleanCandidate(candidate({ date: '2019-01-01', source_date: null }), { now: NOW }).reason).toBe('no valid incident date');
     expect(cleanCandidate(candidate({ state: ' ' }), { now: NOW }).reason).toBe('no state');
     expect(cleanCandidate(candidate({ description: '' }), { now: NOW }).reason).toBe('no description');
+  });
+
+  it('always saves collected incidents as Unverified, whatever the AI says', () => {
+    expect(cleanCandidate(candidate({ verification_status: 'Verified' }), { now: NOW }).incident.verification_status).toBe('Unverified');
   });
 
   it('falls back to safe defaults for invalid values', () => {

@@ -4,7 +4,6 @@
 import {
   SEVERITY_OPTIONS,
   CONFIDENCE_OPTIONS,
-  VERIFICATION_OPTIONS,
   DEFAULT_EVENT_TYPES,
   normalizeDate
 } from '../../src/utils/incidentSchema.js';
@@ -29,7 +28,7 @@ export const EXTRACTION_SCHEMA = {
         required: [
           'date', 'state', 'lga', 'location', 'event_type', 'severity', 'description',
           'fatalities', 'injured', 'abducted', 'actors', 'source', 'source_url', 'source_date',
-          'confidence', 'verification_status'
+          'confidence'
         ],
         properties: {
           date: nullable({ type: 'string', description: 'Date the incident happened, YYYY-MM-DD' }),
@@ -46,8 +45,7 @@ export const EXTRACTION_SCHEMA = {
           source: nullable({ type: 'string', description: 'Outlet or agency name' }),
           source_url: nullable({ type: 'string', description: 'Link to the original report' }),
           source_date: nullable({ type: 'string', description: 'Publication date, YYYY-MM-DD' }),
-          confidence: { type: 'string', enum: CONFIDENCE_OPTIONS },
-          verification_status: { type: 'string', enum: VERIFICATION_OPTIONS }
+          confidence: { type: 'string', enum: CONFIDENCE_OPTIONS }
         }
       }
     }
@@ -130,7 +128,8 @@ export function cleanCandidate(raw, { now = Date.now() } = {}) {
     source_url: sourceUrl && /^https?:\/\/\S+\.\S+/i.test(sourceUrl) ? sourceUrl : null,
     source_date: recentDate(raw.source_date, now),
     confidence: option(raw.confidence, CONFIDENCE_OPTIONS) || 'Low',
-    verification_status: option(raw.verification_status, VERIFICATION_OPTIONS) || 'Unverified'
+    // Only the risk team verifies (Review tab); collected incidents always start unverified
+    verification_status: 'Unverified'
   };
   return { incident, reason: null };
 }
