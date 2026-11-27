@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Activity, Loader2, ShieldCheck, AlertTriangle, MapPinned, Route, BadgeCheck } from 'lucide-react';
 import { supabase } from '../supabase';
 import { isOafEmail, signInWithGoogle, signOut, OAF_DOMAIN } from './oafAuth';
 
@@ -50,8 +50,8 @@ export default function AuthGate({ children }) {
 
   if (session === undefined) {
     return (
-      <div className="h-screen w-full bg-gray-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-green-400 animate-spin" aria-label="Checking sign-in" />
+      <div className="h-screen w-full bg-gradient-to-br from-[#0f3d24] via-[#0b1f14] to-[#1a1208] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-orange-400 animate-spin" aria-label="Checking sign-in" />
       </div>
     );
   }
@@ -59,51 +59,105 @@ export default function AuthGate({ children }) {
   if (session) return children(session.user);
 
   return (
-    <main className="min-h-screen w-full bg-gray-950 text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl p-7 space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-red-500/20 rounded-lg border border-red-500/40">
-            <Activity className="text-red-500 w-6 h-6" />
+    <main className="relative min-h-screen w-full overflow-hidden bg-[#0b1f14] text-white">
+      {/* Background: OAF green with soft orange and green glows over a faint map grid */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#0f3d24] via-[#0b1f14] to-[#1a1208]" />
+      <div className="pointer-events-none absolute -top-32 -left-24 h-[28rem] w-[28rem] rounded-full bg-green-500/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -right-24 h-[30rem] w-[30rem] rounded-full bg-orange-500/25 blur-3xl" />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        style={{
+          backgroundImage: 'linear-gradient(#ffffff 1px, transparent 1px), linear-gradient(90deg, #ffffff 1px, transparent 1px)',
+          backgroundSize: '48px 48px'
+        }}
+      />
+
+      {/* Phones: intro, sign-in, features. Desktop: intro and features on the left, sign-in on the right */}
+      <div className="relative mx-auto grid min-h-screen max-w-6xl content-center items-center gap-8 px-5 py-10 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-x-16 lg:gap-y-8">
+        {/* What OneSecure is */}
+        <section className="mx-auto max-w-xl text-center lg:col-start-1 lg:row-start-1 lg:mx-0 lg:text-left">
+          <div className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 backdrop-blur">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500">
+              <Activity className="h-3.5 w-3.5 text-white" />
+            </span>
+            <span className="text-sm font-semibold tracking-wide">OneSecure</span>
+            <span className="text-xs text-green-200/80">One Acre Fund Nigeria</span>
           </div>
-          <div>
-            <h1 className="text-xl font-bold">OneSecure</h1>
-            <p className="text-xs text-gray-400">One Acre Fund Nigeria · Security Intelligence</p>
+
+          <h1 className="mt-6 text-3xl font-bold leading-tight sm:text-4xl">
+            Security intelligence for <span className="text-orange-400">One Acre Fund</span> staff
+          </h1>
+          <p className="mt-4 text-base leading-relaxed text-green-50/80">
+            Plan a trip and see which route to take, know what is happening around our hubs and sites,
+            and keep up with security across OAF&apos;s operating areas.
+          </p>
+        </section>
+
+        {/* Sign-in card */}
+        <section className="mx-auto w-full max-w-sm lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <div className="rounded-2xl bg-white p-7 text-gray-900 shadow-2xl shadow-black/40">
+            <div className="h-1 w-12 rounded-full bg-gradient-to-r from-green-600 to-orange-500" />
+            <h2 className="mt-5 text-xl font-bold">Welcome</h2>
+            <p className="mt-1 text-sm text-gray-500">Sign in with your One Acre Fund account to continue.</p>
+
+            <button
+              type="button"
+              onClick={handleSignIn}
+              disabled={signingIn}
+              className="mt-6 flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-800 shadow-sm transition hover:bg-gray-50 hover:shadow focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2 disabled:opacity-60"
+            >
+              {signingIn ? <Loader2 size={18} className="animate-spin text-gray-500" /> : <GoogleMark />}
+              {signingIn ? 'Opening Google…' : 'Sign in with Google'}
+            </button>
+
+            {rejectedEmail && (
+              <p className="mt-4 flex items-start gap-1.5 rounded-lg bg-red-50 p-2.5 text-xs text-red-700" role="alert">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                {rejectedEmail} is not a One Acre Fund account. Please use your @{OAF_DOMAIN} email.
+              </p>
+            )}
+            {error && (
+              <p className="mt-4 flex items-start gap-1.5 rounded-lg bg-red-50 p-2.5 text-xs text-red-700" role="alert">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" /> Sign-in failed: {error}
+              </p>
+            )}
+
+            <p className="mt-6 flex items-center gap-1.5 border-t border-gray-100 pt-4 text-xs text-gray-500">
+              <ShieldCheck size={14} className="text-green-600" />
+              For One Acre Fund staff only (@{OAF_DOMAIN}).
+            </p>
           </div>
-        </div>
-
-        <p className="text-sm text-gray-300 leading-relaxed">
-          This map holds sensitive security information and is for One Acre Fund staff only.
-        </p>
-
-        <button
-          type="button"
-          onClick={handleSignIn}
-          disabled={signingIn}
-          className="w-full py-3 rounded-lg bg-white hover:bg-gray-100 disabled:opacity-70 text-gray-900 font-semibold text-sm flex items-center justify-center gap-2.5 shadow"
-        >
-          {signingIn ? <Loader2 size={18} className="animate-spin" /> : <GoogleMark />}
-          Sign in with your One Acre Fund Google account
-        </button>
-
-        {rejectedEmail && (
-          <p className="text-xs text-red-300 flex items-start gap-1.5" role="alert">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-400" />
-            {rejectedEmail} is not a One Acre Fund account. Sign in with your @{OAF_DOMAIN} email.
+          <p className="mt-4 text-center text-xs text-green-50/50">
+            Contains sensitive security information. Please do not share screenshots outside OAF.
           </p>
-        )}
-        {error && (
-          <p className="text-xs text-red-300 flex items-start gap-1.5" role="alert">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-400" /> Sign-in failed: {error}
-          </p>
-        )}
+        </section>
 
-        <p className="text-[11px] text-gray-500 flex items-center gap-1.5">
-          <ShieldCheck size={13} className="text-green-500" /> Only @{OAF_DOMAIN} accounts can sign in.
-        </p>
+        {/* Key features */}
+        <section className="mx-auto w-full max-w-xl lg:col-start-1 lg:row-start-2 lg:mx-0">
+          <ul className="grid gap-3 text-left">
+            {FEATURES.map(({ icon: Icon, title, text }) => (
+              <li key={title} className="flex gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3.5 backdrop-blur-sm">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-500/15 text-green-300">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold">{title}</span>
+                  <span className="block text-xs leading-relaxed text-green-50/70">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </main>
   );
 }
+
+const FEATURES = [
+  { icon: MapPinned, title: 'Live security map', text: 'Recent incidents near our hubs and sites, with alerts when one is close.' },
+  { icon: Route, title: 'Route Intelligence', text: 'Compare routes for a trip and see the risky stretches before you travel.' },
+  { icon: BadgeCheck, title: 'Reviewed by the risk team', text: 'Incidents are checked with security contacts and marked as verified.' }
+];
 
 function GoogleMark() {
   return (
