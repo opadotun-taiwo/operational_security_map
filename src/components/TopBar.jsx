@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Navigation, HelpCircle, FilePlus2, LogOut } from 'lucide-react';
+import { Navigation, HelpCircle, FilePlus2, LogOut } from 'lucide-react';
 
 const HUB_RADIUS_OPTIONS = [5, 10, 25, 50];
 
@@ -24,8 +24,8 @@ export default function TopBar({
         
         {/* Logo Area */}
         <div className="flex items-center gap-2.5 mr-2">
-          <div className="p-1.5 bg-red-500/20 rounded-lg border border-red-500/40">
-            <Activity className="text-red-500 w-5 h-5" />
+          <div className="p-1 bg-white rounded-lg shadow-sm">
+            <img src="/oaf-logo.png" alt="One Acre Fund" className="w-7 h-7 object-contain" />
           </div>
           <div>
             <h1 className="text-lg font-bold text-white tracking-wide flex items-center gap-1.5">

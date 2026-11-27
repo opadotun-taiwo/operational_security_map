@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Loader2, ShieldCheck, AlertTriangle, MapPinned, Route, BadgeCheck } from 'lucide-react';
+import { Loader2, ShieldCheck, AlertTriangle, MapPinned, Route, BadgeCheck } from 'lucide-react';
 import { supabase } from '../supabase';
 import { isOafEmail, signInWithGoogle, signOut, OAF_DOMAIN } from './oafAuth';
 
@@ -77,8 +77,8 @@ export default function AuthGate({ children }) {
         {/* What OneSecure is */}
         <section className="mx-auto max-w-xl text-center lg:col-start-1 lg:row-start-1 lg:mx-0 lg:text-left">
           <div className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 backdrop-blur">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500">
-              <Activity className="h-3.5 w-3.5 text-white" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white">
+              <img src="/oaf-logo.png" alt="One Acre Fund" className="h-5 w-5 object-contain" />
             </span>
             <span className="text-sm font-semibold tracking-wide">OneSecure</span>
             <span className="text-xs text-green-200/80">One Acre Fund Nigeria</span>
@@ -96,7 +96,10 @@ export default function AuthGate({ children }) {
         {/* Sign-in card */}
         <section className="mx-auto w-full max-w-sm lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <div className="rounded-2xl bg-white p-7 text-gray-900 shadow-2xl shadow-black/40">
-            <div className="h-1 w-12 rounded-full bg-gradient-to-r from-green-600 to-orange-500" />
+            <div className="flex items-center gap-3">
+              <img src="/oaf-logo.png" alt="" className="h-10 w-10 object-contain" />
+              <div className="h-1 w-12 rounded-full bg-gradient-to-r from-[#177D68] to-orange-500" />
+            </div>
             <h2 className="mt-5 text-xl font-bold">Welcome</h2>
             <p className="mt-1 text-sm text-gray-500">Sign in with your One Acre Fund account to continue.</p>
 
