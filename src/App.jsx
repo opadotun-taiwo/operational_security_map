@@ -11,16 +11,26 @@ import ReportIncidentPanel from './components/ReportIncidentPanel';
 import { Loader2 } from 'lucide-react';
 import { annotateHubThreats } from './utils/hubThreats';
 import { fetchAllRows } from './services/fetchAllRows';
+import { isAuthorizedReporter } from './services/incidentReports';
+import { signOut } from './auth/oafAuth';
 import { getOperatingStates, isInOperatingStates, canonicalState } from './utils/operatingStates';
 
 // Default map scope: only incidents in the operating area around hubs are drawn
 const DEFAULT_HUB_RADIUS_KM = 10;
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
-function App() {
+function App({ user }) {
   // Raw rows from Supabase; `events`/`hubs` below are the derived, annotated versions
   const [rawEvents, setRawEvents] = useState([]);
   const [rawHubs, setRawHubs] = useState([]);
+  // Risk-team tools (review, add, upload, download) are only offered to the approved reporters
+  const [canReport, setCanReport] = useState(false);
+  useEffect(() => {
+    let active = true;
+    isAuthorizedReporter(user?.email).then(ok => active && setCanReport(ok));
+    return () => { active = false; };
+  }, [user?.email]);
+
   const [lastUpdated, setLastUpdated] = useState(null);
   const [databaseCount, setDatabaseCount] = useState(null);
   const [refreshError, setRefreshError] = useState(null);
@@ -233,6 +243,9 @@ function App() {
           setSelectedClusterEvents(null);
         }}
         isReportOpen={isReportOpen}
+        canReport={canReport}
+        user={user}
+        onSignOut={() => signOut()}
       />
       
       <div className="flex flex-1 overflow-hidden relative">
@@ -348,6 +361,7 @@ function App() {
 
           {isReportOpen ? (
             <ReportIncidentPanel
+              reporterEmail={canReport ? user?.email : ''}
               onClose={() => {
                 setIsReportOpen(false);
                 setPickingFor(null);

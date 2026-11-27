@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Navigation, HelpCircle, FilePlus2 } from 'lucide-react';
+import { Activity, Navigation, HelpCircle, FilePlus2, LogOut } from 'lucide-react';
 
 const HUB_RADIUS_OPTIONS = [5, 10, 25, 50];
 
@@ -13,7 +13,10 @@ export default function TopBar({
   hasActiveRoute = false,
   onShowHelp,
   onReportIncident,
-  isReportOpen = false
+  isReportOpen = false,
+  canReport = false,
+  user,
+  onSignOut
 }) {
   return (
     <div className="w-full bg-gray-900 border-b border-gray-800 z-30 shadow-md">
@@ -52,7 +55,7 @@ export default function TopBar({
           )}
         </button>
 
-        {onReportIncident && (
+        {onReportIncident && canReport && (
           <button
             onClick={onReportIncident}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
@@ -65,6 +68,24 @@ export default function TopBar({
             <FilePlus2 size={14} />
             <span>Incident Reports</span>
           </button>
+        )}
+
+        {user && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 order-last sm:order-none">
+            <span className="max-w-[160px] truncate" title={user.email}>
+              {user.user_metadata?.full_name || user.email}
+            </span>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700"
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                <LogOut size={14} />
+              </button>
+            )}
+          </div>
         )}
 
         {onShowHelp && (

@@ -109,6 +109,17 @@ npm run build
 npm run dev
 ```
 
+### Staff Sign-in
+
+The app is only available to signed-in One Acre Fund staff (Google sign-in through Supabase Auth). Setup:
+
+1. Google Cloud → OAuth consent screen with user type **Internal** (only the oneacrefund.org Workspace can sign in) and a Web OAuth client whose redirect URI is `https://<project-ref>.supabase.co/auth/v1/callback`.
+2. Supabase → Authentication → Google provider enabled with that client ID/secret; Site URL and Redirect URLs set to the site address; email sign-ups turned off.
+3. The app also signs out any account not ending in `@oneacrefund.org`, and only offers the Incident Reports tools to the approved risk-team emails.
+4. Row-level security policies restrict reads to authenticated `@oneacrefund.org` users and inserts/updates to the risk team (kept outside this repository because they name the approved emails).
+
+The daily collection job uses the service-role key and is not affected.
+
 ### Incident Review (risk team)
 
 Collected and reported incidents start as **Unverified** and appear on the map with that label. The approved reporters review them in **Incident Reports → Review**: open the source, confirm with a security contact, correct the details if needed, note how it was confirmed, and choose **Verified**, **Partially verified**, **Disputed** or **Hide from map**. Each review stores who reviewed it, when, and the note. Hidden incidents disappear from the map, totals, routes and downloads but stay in the table.

@@ -61,6 +61,7 @@ const inputClass = (hasError) =>
  */
 export default function ReportIncidentPanel({
   onClose,
+  reporterEmail = '',
   hubs = [],
   states = [],
   eventTypes = [],
@@ -76,7 +77,8 @@ export default function ReportIncidentPanel({
   pickedLocation,
   onSubmitted
 }) {
-  const [verifiedEmail, setVerifiedEmail] = useState('');
+  // Signed in with an approved OAF account: no need to type an email
+  const [verifiedEmail, setVerifiedEmail] = useState(reporterEmail);
   const [emailInput, setEmailInput] = useState('');
   const [emailError, setEmailError] = useState(null);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
@@ -189,10 +191,12 @@ export default function ReportIncidentPanel({
         <>
           <div className="px-5 pt-4 space-y-3">
             <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>Signed in as an approved reporter</span>
-              <button type="button" onClick={signOut} className="text-gray-400 hover:text-white underline underline-offset-2">
-                Use a different email
-              </button>
+              <span>Signed in as <span className="text-gray-200">{verifiedEmail}</span> (risk team)</span>
+              {!reporterEmail && (
+                <button type="button" onClick={signOut} className="text-gray-400 hover:text-white underline underline-offset-2">
+                  Use a different email
+                </button>
+              )}
             </div>
             <div className="grid grid-cols-4 gap-1 p-1 bg-gray-950 rounded-xl border border-gray-800" role="tablist">
               {[
