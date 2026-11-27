@@ -42,6 +42,33 @@ export async function fetchIncidentColumns() {
 }
 
 // ---------------------------------------------------------------------------
+// Review
+// ---------------------------------------------------------------------------
+
+/**
+ * Saves a risk-team review (decision, corrections, reviewer) on one incident.
+ *
+ * @returns {Promise<Object>} The updated row
+ */
+export async function saveIncidentReview(eventId, changes, reviewerEmail) {
+  if (!(await isAuthorizedReporter(reviewerEmail))) {
+    throw new Error('This email is not authorised to review incidents.');
+  }
+  const { data, error } = await supabase.from('security_events').update(changes).eq('event_id', eventId).select();
+  if (error) {
+    if (/column .* does not exist|could not find .* column/i.test(error.message)) {
+      throw new Error('The review columns are missing. Run the review setup SQL in Supabase (see the Review tab).');
+    }
+    throw new Error(`Review could not be saved: ${error.message}`);
+  }
+  // With row-level security an update that isn't allowed changes nothing and returns no rows
+  if (!data || data.length === 0) {
+    throw new Error('The database did not accept the change. Run the review setup SQL in Supabase to allow reviews (see the Review tab).');
+  }
+  return data[0];
+}
+
+// ---------------------------------------------------------------------------
 // Saving
 // ---------------------------------------------------------------------------
 

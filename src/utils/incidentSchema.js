@@ -321,3 +321,53 @@ export function selectIncidentsForExport(incidents, { from = '', to = '', state 
 export function buildIncidentsCsv(incidents) {
   return toCsv(incidents, EXPORT_COLUMNS);
 }
+
+// ---------------------------------------------------------------------------
+// Review (risk team)
+// ---------------------------------------------------------------------------
+
+/** Columns added by the review setup SQL (see README). */
+export const REVIEW_COLUMNS = ['reviewed_by', 'reviewed_at', 'review_note', 'is_hidden'];
+
+/** Review decisions shown as buttons; each maps to the stored fields. */
+export const REVIEW_DECISIONS = [
+  { id: 'Verified', label: 'Verified', help: 'Confirmed with DSS, Police, Road Safety or another security contact' },
+  { id: 'Partially Verified', label: 'Partially verified', help: 'Reported by several independent sources, not yet officially confirmed' },
+  { id: 'Disputed', label: 'Disputed', help: 'Sources disagree about what happened or the numbers' },
+  { id: 'hide', label: 'Hide from map', help: 'Not a real incident, not security related, or a personal staff matter' }
+];
+
+/** True once the table has the review columns (the setup SQL has been run). */
+export function hasReviewColumns(incidents) {
+  return incidents.length > 0 && REVIEW_COLUMNS.every(c => c in incidents[0]);
+}
+
+/** Fields to save for a decision, with any corrections the reviewer made. */
+export function reviewChanges(decision, corrections = {}, { reviewer, note = '', now = Date.now() } = {}) {
+  const changes = { ...corrections, reviewed_by: reviewer, reviewed_at: new Date(now).toISOString(), review_note: note.trim() || null };
+  if (decision === 'hide') changes.is_hidden = true;
+  else {
+    changes.verification_status = decision;
+    changes.is_hidden = false;
+  }
+  return changes;
+}
+
+/**
+ * Incidents for the review list. "waiting" = not yet reviewed; "reviewed" = decided.
+ * Only incidents added within `days` (by created_at, else reported_date) are listed;
+ * newest first.
+ */
+export function reviewQueue(incidents, { show = 'waiting', days = 14, now = Date.now() } = {}) {
+  const cutoff = days ? now - days * 24 * 60 * 60 * 1000 : -Infinity;
+  const added = (e) => {
+    const t = new Date(e.created_at || e.reported_date || e.date || 0).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+  return incidents
+    .filter(e => added(e) >= cutoff)
+    .filter(e => (show === 'reviewed' ? Boolean(e.reviewed_at) : !e.reviewed_at))
+    .sort((a, b) => (show === 'reviewed'
+      ? new Date(b.reviewed_at) - new Date(a.reviewed_at)
+      : added(b) - added(a)));
+}

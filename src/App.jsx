@@ -99,13 +99,15 @@ function App() {
   }, [loadData]);
 
   // Only incidents in hub states plus the expansion states are shown anywhere in the app
-  const operatingStates = useMemo(() => getOperatingStates(rawHubs, rawEvents), [rawHubs, rawEvents]);
+  // Incidents the risk team hid in the Review tab never appear on the map, in totals or in routes
+  const shownEvents = useMemo(() => rawEvents.filter(e => e.is_hidden !== true), [rawEvents]);
+  const operatingStates = useMemo(() => getOperatingStates(rawHubs, shownEvents), [rawHubs, shownEvents]);
   const { events, hubs } = useMemo(
-    () => annotateHubThreats(rawEvents.filter(e => isInOperatingStates(e, operatingStates)), rawHubs),
-    [rawEvents, rawHubs, operatingStates]
+    () => annotateHubThreats(shownEvents.filter(e => isInOperatingStates(e, operatingStates)), rawHubs),
+    [shownEvents, rawHubs, operatingStates]
   );
   // Route checks look at incidents in every state the road passes through, not only operating states
-  const routeIncidents = useMemo(() => annotateHubThreats(rawEvents, rawHubs).events, [rawEvents, rawHubs]);
+  const routeIncidents = useMemo(() => annotateHubThreats(shownEvents, rawHubs).events, [shownEvents, rawHubs]);
   const existingEventIds = useMemo(() => rawEvents.map(e => e.event_id).filter(Boolean), [rawEvents]);
 
   const uniqueStates = useMemo(() => {
@@ -334,6 +336,9 @@ function App() {
               eventTypes={uniqueEventTypes}
               existingEventIds={existingEventIds}
               incidents={events}
+              allIncidents={rawEvents}
+              onReviewed={() => loadData()}
+              onShowOnMap={(incident) => setFocusRequest({ lat: parseFloat(incident.latitude), lng: parseFloat(incident.longitude), at: Date.now() })}
               defaultDateFrom={filters.dateFrom}
               defaultDateTo={filters.dateTo}
               isPickingLocation={pickingFor === 'report'}

@@ -109,6 +109,25 @@ npm run build
 npm run dev
 ```
 
+### Incident Review (risk team)
+
+Collected and reported incidents start as **Unverified** and appear on the map with that label. The approved reporters review them in **Incident Reports → Review**: open the source, confirm with a security contact, correct the details if needed, note how it was confirmed, and choose **Verified**, **Partially verified**, **Disputed** or **Hide from map**. Each review stores who reviewed it, when, and the note. Hidden incidents disappear from the map, totals, routes and downloads but stay in the table.
+
+One-time setup (Supabase → SQL Editor):
+
+```sql
+alter table public.security_events
+  add column if not exists reviewed_by text,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists review_note text,
+  add column if not exists is_hidden boolean not null default false;
+
+create policy "Allow incident reviews" on public.security_events
+  for update to anon using (true) with check (true);
+```
+
+Like the insert policy, this lets anyone with the public anon key update rows; the approved-email check happens in the browser.
+
 ### Daily Incident Collection
 
 `.github/workflows/daily-incident-collection.yml` runs `scripts/ingest/index.js` every day at 12:00 Nigeria time (replaces the n8n "GR automated news" workflow):

@@ -52,6 +52,14 @@ export default function DetailsPanel({ event, onClose }) {
         )}
 
         <h3 className="text-xl font-bold text-white mb-2">{event.event_type || 'Unknown Event'}</h3>
+        {'reviewed_at' in event && (
+          <p className={`text-xs mb-3 ${event.reviewed_at ? 'text-green-300' : 'text-gray-400'}`}>
+            {event.reviewed_at
+              ? `Reviewed by the risk team (${String(event.reviewed_by || '').split('@')[0] || 'reviewer'}) on ${format(new Date(event.reviewed_at), 'PPP')}.`
+              : 'Not yet reviewed by the risk team.'}
+            {event.review_note ? ` Note: ${event.review_note}` : ''}
+          </p>
+        )}
         
         <div className="space-y-4 mb-6">
           <div className="flex items-center text-gray-300 gap-3">

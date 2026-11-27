@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Lock, Crosshair, CheckCircle2, AlertTriangle, Loader2, FilePlus2, Home, Search,
-  LocateFixed, Upload, Download, FileSpreadsheet, MapPin, RefreshCw
+  LocateFixed, Upload, Download, FileSpreadsheet, MapPin, RefreshCw,
+  ClipboardCheck, ExternalLink, EyeOff, ShieldCheck, ShieldQuestion, ShieldAlert, Copy, ChevronDown
 } from 'lucide-react';
 import {
   isAuthorizedReporter,
@@ -13,6 +14,11 @@ import {
   readIncidentCsv,
   selectIncidentsForExport,
   buildIncidentsCsv,
+  saveIncidentReview,
+  reviewQueue,
+  reviewChanges,
+  hasReviewColumns,
+  REVIEW_DECISIONS,
   nextEventId,
   SEVERITY_OPTIONS,
   CONFIDENCE_OPTIONS,
@@ -60,6 +66,9 @@ export default function ReportIncidentPanel({
   eventTypes = [],
   existingEventIds = [],
   incidents = [],
+  allIncidents = [],
+  onReviewed,
+  onShowOnMap,
   defaultDateFrom = '',
   defaultDateTo = '',
   isPickingLocation,
@@ -71,7 +80,7 @@ export default function ReportIncidentPanel({
   const [emailInput, setEmailInput] = useState('');
   const [emailError, setEmailError] = useState(null);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
-  const [mode, setMode] = useState('form'); // 'form' | 'upload'
+  const [mode, setMode] = useState('review'); // 'review' | 'form' | 'upload' | 'download'
   const [columns, setColumns] = useState(null);
 
   // Re-use an email already verified in this browser session
@@ -185,10 +194,11 @@ export default function ReportIncidentPanel({
                 Use a different email
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-1 p-1 bg-gray-950 rounded-xl border border-gray-800" role="tablist">
+            <div className="grid grid-cols-4 gap-1 p-1 bg-gray-950 rounded-xl border border-gray-800" role="tablist">
               {[
-                { id: 'form', label: 'Fill in form', icon: FilePlus2 },
-                { id: 'upload', label: 'Upload file', icon: FileSpreadsheet },
+                { id: 'review', label: 'Review', icon: ClipboardCheck },
+                { id: 'form', label: 'Add one', icon: FilePlus2 },
+                { id: 'upload', label: 'Upload', icon: FileSpreadsheet },
                 { id: 'download', label: 'Download', icon: Download }
               ].map(tab => (
                 <button
@@ -207,7 +217,15 @@ export default function ReportIncidentPanel({
             </div>
           </div>
 
-          {mode === 'form' ? (
+          {mode === 'review' ? (
+            <ReviewIncidents
+              email={verifiedEmail}
+              incidents={allIncidents}
+              eventTypes={allEventTypes}
+              onReviewed={onReviewed}
+              onShowOnMap={onShowOnMap}
+            />
+          ) : mode === 'form' ? (
             <SingleReportForm
               email={verifiedEmail}
               columns={columns}
@@ -967,5 +985,309 @@ function DownloadIncidents({ incidents, states, defaultDateFrom, defaultDateTo }
         <Download size={16} /> Download {selected.length} incident{selected.length === 1 ? '' : 's'} (.csv)
       </button>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Review
+// ---------------------------------------------------------------------------
+
+const REVIEW_SETUP_SQL = `-- One-time setup for incident review (Supabase -> SQL Editor -> Run)
+alter table public.security_events
+  add column if not exists reviewed_by text,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists review_note text,
+  add column if not exists is_hidden boolean not null default false;
+
+create policy "Allow incident reviews" on public.security_events
+  for update to anon using (true) with check (true);`;
+
+const DECISION_STYLE = {
+  Verified: { icon: ShieldCheck, className: 'bg-green-600 hover:bg-green-500 text-white' },
+  'Partially Verified': { icon: ShieldQuestion, className: 'bg-sky-600 hover:bg-sky-500 text-white' },
+  Disputed: { icon: ShieldAlert, className: 'bg-yellow-500 hover:bg-yellow-400 text-gray-950' },
+  hide: { icon: EyeOff, className: 'bg-gray-700 hover:bg-gray-600 text-white' }
+};
+
+const SEVERITY_DOT = { Critical: 'bg-red-500', High: 'bg-orange-500', Medium: 'bg-yellow-400', Low: 'bg-emerald-500' };
+
+function ReviewSetup() {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(REVIEW_SETUP_SQL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <div className="p-5 space-y-3 text-sm overflow-y-auto">
+      <div className="p-3.5 rounded-xl border border-yellow-500/40 bg-yellow-500/10 text-yellow-50 space-y-2">
+        <p className="font-semibold">One-time setup needed</p>
+        <p className="text-xs leading-relaxed text-yellow-100/90">
+          The incident table needs four extra columns to record reviews (who reviewed, when, their note, and whether it is hidden).
+          An administrator does this once:
+        </p>
+        <ol className="text-xs list-decimal list-inside space-y-1 text-yellow-100/90">
+          <li>Open Supabase → <b>SQL Editor</b> → <b>New query</b>.</li>
+          <li>Paste the text below and click <b>Run</b>.</li>
+          <li>Reload this page.</li>
+        </ol>
+      </div>
+      <div className="relative">
+        <pre className="text-[11px] leading-relaxed bg-gray-950 border border-gray-800 rounded-lg p-3 overflow-x-auto text-gray-300">{REVIEW_SETUP_SQL}</pre>
+        <button type="button" onClick={copy} className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-white flex items-center gap-1">
+          <Copy size={12} /> {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewGuide() {
+  return (
+    <details className="review-guide rounded-xl border border-gray-700 bg-gray-800/40" open>
+      <summary className="px-3.5 py-2.5 cursor-pointer text-xs font-semibold text-green-400 uppercase tracking-wider flex items-center justify-between">
+        How to review an incident <ChevronDown size={14} />
+      </summary>
+      <ol className="px-3.5 pb-3 space-y-1.5 text-xs text-gray-300 list-decimal list-inside leading-relaxed">
+        <li><b className="text-white">Open the incident</b> below and read the summary.</li>
+        <li><b className="text-white">Open the source article</b> and check the details.</li>
+        <li><b className="text-white">Confirm with a security contact</b> (DSS, Police, Road Safety or others) if it matters for our operations.</li>
+        <li><b className="text-white">Fix anything wrong</b> (type, severity, LGA, numbers), write how you confirmed it, then <b className="text-white">choose a decision</b>.</li>
+      </ol>
+      <p className="px-3.5 pb-3 text-[11px] text-gray-500">Unreviewed incidents stay on the map as “Unverified”. Hidden ones disappear from the map but stay in the database.</p>
+    </details>
+  );
+}
+
+function ReviewIncidents({ email, incidents, eventTypes, onReviewed, onShowOnMap }) {
+  const [show, setShow] = useState('waiting');
+  const [days, setDays] = useState(14);
+  const [openId, setOpenId] = useState(null);
+  const [savedMessage, setSavedMessage] = useState(null);
+
+  const ready = hasReviewColumns(incidents);
+  const waiting = useMemo(() => reviewQueue(incidents, { show: 'waiting', days }), [incidents, days]);
+  const reviewed = useMemo(() => reviewQueue(incidents, { show: 'reviewed', days }), [incidents, days]);
+
+  if (incidents.length > 0 && !ready) return <ReviewSetup />;
+
+  const list = show === 'waiting' ? waiting : reviewed;
+
+  return (
+    <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar text-sm">
+      <ReviewGuide />
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="grid grid-cols-2 gap-1 p-1 bg-gray-950 rounded-lg border border-gray-800 text-xs">
+          {[['waiting', `Waiting (${waiting.length})`], ['reviewed', `Reviewed (${reviewed.length})`]].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={show === id}
+              onClick={() => { setShow(id); setOpenId(null); }}
+              className={`px-2.5 py-1 rounded-md font-medium ${show === id ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <select value={String(days)} onChange={(e) => setDays(e.target.value === 'all' ? null : Number(e.target.value))} className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white" aria-label="Added in the last">
+          <option value="7">Added in last 7 days</option>
+          <option value="14">Added in last 14 days</option>
+          <option value="30">Added in last 30 days</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+
+      {savedMessage && (
+        <p className="text-xs text-green-300 flex items-center gap-1.5" role="status"><CheckCircle2 size={14} /> {savedMessage}</p>
+      )}
+
+      {list.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-6">
+          {show === 'waiting' ? 'Nothing waiting for review in this period. 🎉' : 'No incidents reviewed in this period yet.'}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {list.map(incident => (
+            <ReviewCard
+              key={incident.event_id}
+              incident={incident}
+              email={email}
+              eventTypes={eventTypes}
+              isOpen={openId === incident.event_id}
+              onToggle={() => setOpenId(id => (id === incident.event_id ? null : incident.event_id))}
+              onShowOnMap={onShowOnMap}
+              onSaved={(decisionLabel) => {
+                setOpenId(null);
+                setSavedMessage(`${incident.event_type} in ${incident.lga || incident.state} saved as “${decisionLabel}”.`);
+                onReviewed?.();
+              }}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const editableFields = (incident) => ({
+  event_type: incident.event_type || '',
+  severity: incident.severity || '',
+  state: incident.state || '',
+  lga: incident.lga || '',
+  location: incident.location || '',
+  fatalities: incident.fatalities ?? '',
+  injured: incident.injured ?? '',
+  abducted: incident.abducted ?? ''
+});
+
+function ReviewCard({ incident, email, eventTypes, isOpen, onToggle, onShowOnMap, onSaved }) {
+  const [values, setValues] = useState(() => editableFields(incident));
+  const [note, setNote] = useState(incident.review_note || '');
+  const [saving, setSaving] = useState(null);
+  const [error, setError] = useState(null);
+
+  const types = eventTypes.includes(incident.event_type) || !incident.event_type ? eventTypes : [incident.event_type, ...eventTypes];
+  const isReviewed = Boolean(incident.reviewed_at);
+  const statusLabel = incident.is_hidden ? 'Hidden from map' : incident.verification_status || 'Unverified';
+
+  const decide = async (decision) => {
+    setError(null);
+    const original = editableFields(incident);
+    const corrections = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (String(value) === String(original[key])) continue;
+      if (['fatalities', 'injured', 'abducted'].includes(key)) {
+        if (String(value).trim() === '') { corrections[key] = null; continue; }
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 0) { setError(`${key[0].toUpperCase()}${key.slice(1)} must be a whole number, or empty if unknown.`); return; }
+        corrections[key] = n;
+      } else {
+        corrections[key] = String(value).trim() || null;
+      }
+    }
+    setSaving(decision);
+    try {
+      await saveIncidentReview(incident.event_id, reviewChanges(decision, corrections, { reviewer: email, note }), email);
+      onSaved(REVIEW_DECISIONS.find(d => d.id === decision)?.label || decision);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const field = (key, label, input) => (
+    <label className="block space-y-1">
+      <span className="text-[11px] font-medium text-gray-400">{label}</span>
+      {input}
+    </label>
+  );
+  const textInput = (key, props = {}) => (
+    <input value={values[key]} onChange={(e) => setValues(v => ({ ...v, [key]: e.target.value }))} className={inputClass(false)} {...props} />
+  );
+
+  return (
+    <li className={`review-card rounded-xl border ${isOpen ? 'border-green-600/70 bg-gray-800/70' : 'border-gray-700 bg-gray-800/40'} overflow-hidden`}>
+      <button type="button" onClick={onToggle} aria-expanded={isOpen} className="w-full text-left p-3 flex items-start gap-2.5 hover:bg-gray-800/60">
+        <span className={`mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 ${SEVERITY_DOT[incident.severity] || 'bg-gray-500'}`} title={incident.severity} />
+        <span className="flex-1 min-w-0">
+          <span className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-white text-sm truncate">{incident.event_type || 'Incident'}</span>
+            <span className={`text-[10px] font-bold px-1.5 py-px rounded border shrink-0 ${
+              isReviewed ? 'border-green-600/50 text-green-300 bg-green-600/10' : 'border-gray-600 text-gray-300 bg-gray-900'
+            }`}>
+              {isReviewed ? statusLabel : 'NEEDS REVIEW'}
+            </span>
+          </span>
+          <span className="block text-xs text-gray-400 truncate">
+            {incident.date} · {[incident.location, incident.lga, incident.state].filter(Boolean).join(', ')}
+          </span>
+          <span className="block text-[11px] text-gray-500 truncate">
+            {incident.source || 'Unknown source'} · {incident.event_id}
+            {isReviewed && incident.reviewed_by ? ` · reviewed by ${incident.reviewed_by.split('@')[0]}` : ''}
+          </span>
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="px-3 pb-3 space-y-3 border-t border-gray-700/70 pt-3">
+          <p className="text-xs text-gray-200 leading-relaxed">{incident.description}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {incident.source_url ? (
+              <a href={incident.source_url} target="_blank" rel="noopener noreferrer" className="px-2.5 py-1.5 rounded-lg bg-gray-900 border border-gray-600 hover:border-green-500 text-xs text-white flex items-center gap-1.5">
+                <ExternalLink size={12} /> Open source article
+              </a>
+            ) : (
+              <span className="px-2.5 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-xs text-gray-400">No article link</span>
+            )}
+            <button type="button" onClick={() => onShowOnMap?.(incident)} className="px-2.5 py-1.5 rounded-lg bg-gray-900 border border-gray-600 hover:border-green-500 text-xs text-white flex items-center gap-1.5">
+              <MapPin size={12} /> Show on map
+            </button>
+          </div>
+
+          <details className="rounded-lg border border-gray-700 bg-gray-900/50">
+            <summary className="px-3 py-2 cursor-pointer text-xs text-gray-300">Correct the details (optional)</summary>
+            <div className="p-3 pt-1 grid grid-cols-2 gap-2">
+              {field('event_type', 'Type',
+                <select value={values.event_type} onChange={(e) => setValues(v => ({ ...v, event_type: e.target.value }))} className={inputClass(false)}>
+                  {types.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>)}
+              {field('severity', 'Severity',
+                <select value={values.severity} onChange={(e) => setValues(v => ({ ...v, severity: e.target.value }))} className={inputClass(false)}>
+                  {SEVERITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>)}
+              {field('state', 'State', textInput('state'))}
+              {field('lga', 'LGA', textInput('lga'))}
+              <div className="col-span-2">{field('location', 'Location', textInput('location'))}</div>
+              <div className="col-span-2 grid grid-cols-3 gap-2">
+                {field('fatalities', 'Killed', textInput('fatalities', { type: 'number', min: 0, placeholder: 'Unknown' }))}
+                {field('injured', 'Injured', textInput('injured', { type: 'number', min: 0, placeholder: 'Unknown' }))}
+                {field('abducted', 'Abducted', textInput('abducted', { type: 'number', min: 0, placeholder: 'Unknown' }))}
+              </div>
+            </div>
+          </details>
+
+          <label className="block space-y-1">
+            <span className="text-[11px] font-medium text-gray-400">How did you confirm it? (recommended)</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called DSS Kaduna: 12 abducted confirmed" className={inputClass(false)} />
+          </label>
+
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold text-gray-300 uppercase tracking-wider">Decision</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {REVIEW_DECISIONS.map(d => {
+                const style = DECISION_STYLE[d.id];
+                const Icon = style.icon;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    disabled={Boolean(saving)}
+                    onClick={() => decide(d.id)}
+                    title={d.help}
+                    className={`review-decision px-2.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-60 ${style.className}`}
+                  >
+                    {saving === d.id ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />} {d.label}
+                  </button>
+                );
+              })}
+            </div>
+            <ul className="text-[11px] text-gray-500 space-y-0.5">
+              {REVIEW_DECISIONS.map(d => <li key={d.id}><b className="text-gray-400">{d.label}:</b> {d.help}.</li>)}
+            </ul>
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-300 flex items-start gap-1.5" role="alert"><AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-400" /> {error}</p>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
