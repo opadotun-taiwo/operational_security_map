@@ -109,6 +109,32 @@ npm run build
 npm run dev
 ```
 
+### Daily Incident Collection
+
+`.github/workflows/daily-incident-collection.yml` runs `scripts/ingest/index.js` every day at 12:00 Nigeria time (replaces the n8n "GR automated news" workflow):
+
+1. **Research:** the AI searches the web for Nigerian security incidents reported since yesterday.
+2. **Extract:** the AI turns its notes into the `security_events` fields (same event types, severity, confidence and verification values as before).
+3. **Clean:** the job checks every value; it never takes coordinates or event IDs from the AI.
+4. **Place:** coordinates come from Google Geocoding (community → LGA → state, only if the result is in the same state).
+5. **De-duplicate:** same article link, or same date ±1 day + state + LGA (or community) + event type, against the last 30 days and within the run.
+6. **Save:** new rows get the next `EVT<YYYYMMDD><NNN>` ID and today's `reported_date`.
+
+Each run writes a summary (found / added / duplicates / not placed) on the run page and keeps `ingest-results.json` for 30 days.
+
+**Configuration** (GitHub → Settings → Secrets and variables → Actions):
+
+| Kind | Name | Notes |
+|---|---|---|
+| Variable | `AI_PROVIDER` | `openai` or `anthropic` |
+| Variable | `AI_MODEL` | e.g. `gpt-6-luna`, or `claude-opus-5-5` |
+| Variable | `AI_REASONING` | optional, default `low` (`none`/`minimal`/`low`/`medium`/`high`) |
+| Secret | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | the one matching `AI_PROVIDER` |
+| Secret | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | write access to `security_events` |
+| Secret | `GOOGLE_MAPS_SERVER_KEY` | Google key restricted to the Geocoding API, no website restriction |
+
+**Running it by hand:** Actions → *Daily incident collection* → **Run workflow**. Manual runs are dry runs by default (nothing saved); untick *Dry run* to save. An optional date collects one specific day. Switching AI provider only needs the variables and key changed.
+
 ### Incident Reporting Setup
 
 Reports are saved in one of two ways:

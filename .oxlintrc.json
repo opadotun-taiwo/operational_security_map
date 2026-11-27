@@ -31,7 +31,8 @@
       "files": [
         "*.mjs",
         "vite.config.js",
-        "src/__tests__/**"
+        "src/__tests__/**",
+        "scripts/**"
       ],
       "env": {
         "node": true
