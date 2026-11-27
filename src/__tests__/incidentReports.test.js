@@ -10,6 +10,9 @@ const {
   buildTemplateCsv,
   parseCsv,
   readIncidentCsv,
+  selectIncidentsForExport,
+  buildIncidentsCsv,
+  EXPORT_COLUMNS,
   SCHEMA_COLUMNS
 } = await import('../services/incidentReports');
 
@@ -151,5 +154,31 @@ describe('CSV template and upload', () => {
 
   it('reports missing required columns', () => {
     expect(readIncidentCsv('date,state\n2026-01-01,Kano\n').missingColumns).toContain('description');
+  });
+});
+
+describe('incident download', () => {
+  const incidents = [
+    { event_id: 'EVT20261001001', date: '2026-10-01', state: 'Niger', verification_status: 'Verified', description: 'A, with comma', isNearHub: true },
+    { event_id: 'EVT20261015001', date: '2026-10-15 00:00:00', state: 'Kaduna', verification_status: 'Unverified' },
+    { event_id: 'EVT20261031001', date: '2026-10-31', state: 'niger state', verification_status: 'Verified' },
+    { event_id: 'EVTNODATE', date: null, state: 'Niger' }
+  ];
+
+  it('filters by an inclusive date range, newest first', () => {
+    const ids = selectIncidentsForExport(incidents, { from: '2026-10-01', to: '2026-10-31' }).map(e => e.event_id);
+    expect(ids).toEqual(['EVT20261031001', 'EVT20261015001', 'EVT20261001001']);
+  });
+
+  it('filters by state and verification', () => {
+    expect(selectIncidentsForExport(incidents, { state: 'Niger' }).map(e => e.event_id)).toEqual(['EVT20261031001', 'EVT20261001001', 'EVTNODATE']);
+    expect(selectIncidentsForExport(incidents, { verifiedOnly: true })).toHaveLength(2);
+  });
+
+  it('writes the table columns only, ready to re-upload', () => {
+    const [header, row] = parseCsv(buildIncidentsCsv(incidents.slice(0, 1)));
+    expect(header).toEqual(EXPORT_COLUMNS);
+    expect(header).not.toContain('isNearHub');
+    expect(row[EXPORT_COLUMNS.indexOf('description')]).toBe('A, with comma');
   });
 });

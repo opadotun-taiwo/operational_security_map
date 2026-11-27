@@ -333,6 +333,9 @@ function App() {
               states={operatingStates.all}
               eventTypes={uniqueEventTypes}
               existingEventIds={existingEventIds}
+              incidents={events}
+              defaultDateFrom={filters.dateFrom}
+              defaultDateTo={filters.dateTo}
               isPickingLocation={pickingFor === 'report'}
               onStartPicking={() => togglePicking('report')}
               pickedLocation={pickedLocation}

@@ -60,7 +60,7 @@ export default function TopBar({
                 ? 'bg-red-600 text-white ring-2 ring-red-400'
                 : 'bg-red-600/15 text-red-200 hover:bg-red-600/30 border border-red-500/50'
             }`}
-            title="Approved staff: add a new incident report"
+            title="Approved staff: add, upload or download incident reports"
           >
             <FilePlus2 size={14} />
             <span>Report Incident</span>

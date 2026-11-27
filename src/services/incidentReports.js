@@ -324,6 +324,36 @@ export function readIncidentCsv(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Download (export)
+// ---------------------------------------------------------------------------
+
+/** Export columns: the table structure, plus the database's created_at. */
+export const EXPORT_COLUMNS = [...SCHEMA_COLUMNS, 'created_at'];
+
+/**
+ * Incidents for a download, by incident date (inclusive range, YYYY-MM-DD), optional
+ * state, and verification. Newest first.
+ */
+export function selectIncidentsForExport(incidents, { from = '', to = '', state = 'All', verifiedOnly = false } = {}) {
+  return incidents
+    .filter(e => {
+      const day = normalizeDate(e.date);
+      if ((from || to) && !day) return false;
+      if (from && day < from) return false;
+      if (to && day > to) return false;
+      if (state !== 'All' && canonicalState(e.state) !== canonicalState(state)) return false;
+      if (verifiedOnly && String(e.verification_status || '').toLowerCase() !== 'verified') return false;
+      return true;
+    })
+    .sort((a, b) => String(normalizeDate(b.date) || '').localeCompare(String(normalizeDate(a.date) || '')));
+}
+
+/** CSV of incidents in the security_events column order (same layout as the upload template). */
+export function buildIncidentsCsv(incidents) {
+  return toCsv(incidents, EXPORT_COLUMNS);
+}
+
+// ---------------------------------------------------------------------------
 // Saving
 // ---------------------------------------------------------------------------
 

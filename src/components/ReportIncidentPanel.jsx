@@ -11,6 +11,8 @@ import {
   normalizeEmail,
   buildTemplateCsv,
   readIncidentCsv,
+  selectIncidentsForExport,
+  buildIncidentsCsv,
   nextEventId,
   SEVERITY_OPTIONS,
   CONFIDENCE_OPTIONS,
@@ -57,6 +59,9 @@ export default function ReportIncidentPanel({
   states = [],
   eventTypes = [],
   existingEventIds = [],
+  incidents = [],
+  defaultDateFrom = '',
+  defaultDateTo = '',
   isPickingLocation,
   onStartPicking,
   pickedLocation,
@@ -122,7 +127,7 @@ export default function ReportIncidentPanel({
     <div className="absolute top-0 right-0 h-full w-full sm:w-[440px] bg-gray-900 shadow-2xl border-l border-gray-800 z-50 flex flex-col">
       <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <FilePlus2 size={20} className="text-red-400" /> Report an Incident
+          <FilePlus2 size={20} className="text-red-400" /> Incident Reports
         </h2>
         <button
           onClick={onClose}
@@ -180,10 +185,11 @@ export default function ReportIncidentPanel({
                 Use a different email
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-1 p-1 bg-gray-950 rounded-xl border border-gray-800" role="tablist">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-gray-950 rounded-xl border border-gray-800" role="tablist">
               {[
                 { id: 'form', label: 'Fill in form', icon: FilePlus2 },
-                { id: 'upload', label: 'Upload file', icon: FileSpreadsheet }
+                { id: 'upload', label: 'Upload file', icon: FileSpreadsheet },
+                { id: 'download', label: 'Download', icon: Download }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -191,7 +197,7 @@ export default function ReportIncidentPanel({
                   role="tab"
                   aria-selected={mode === tab.id}
                   onClick={() => setMode(tab.id)}
-                  className={`py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  className={`py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                     mode === tab.id ? 'bg-gray-800 text-white shadow' : 'text-gray-400 hover:text-white'
                   }`}
                 >
@@ -215,7 +221,7 @@ export default function ReportIncidentPanel({
               onSubmitted={onSubmitted}
               onClose={onClose}
             />
-          ) : (
+          ) : mode === 'upload' ? (
             <BulkUpload
               email={verifiedEmail}
               columns={columns}
@@ -223,6 +229,13 @@ export default function ReportIncidentPanel({
               existingEventIds={existingEventIds}
               onSubmitted={onSubmitted}
               onClose={onClose}
+            />
+          ) : (
+            <DownloadIncidents
+              incidents={incidents}
+              states={states}
+              defaultDateFrom={defaultDateFrom}
+              defaultDateTo={defaultDateTo}
             />
           )}
         </>
@@ -623,16 +636,21 @@ function PlaceSearch({ onSelect, onBusy }) {
 // Bulk upload
 // ---------------------------------------------------------------------------
 
-function downloadTemplate() {
-  const blob = new Blob([buildTemplateCsv()], { type: 'text/csv;charset=utf-8' });
+function downloadCsv(text, fileName) {
+  // UTF-8 byte-order mark so Excel opens accents and symbols correctly
+  const blob = new Blob(['\uFEFF', text], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'security_incidents_template.csv';
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadTemplate() {
+  downloadCsv(buildTemplateCsv(), 'security_incidents_template.csv');
 }
 
 function BulkUpload({ email, columns, states, existingEventIds, onSubmitted, onClose }) {
@@ -848,6 +866,106 @@ function BulkUpload({ email, columns, states, existingEventIds, onSubmitted, onC
           </button>
         </section>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Download
+// ---------------------------------------------------------------------------
+
+const daysAgoIso = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+
+function DownloadIncidents({ incidents, states, defaultDateFrom, defaultDateTo }) {
+  const [from, setFrom] = useState(defaultDateFrom || daysAgoIso(30));
+  const [to, setTo] = useState(defaultDateTo || todayIso());
+  const [state, setState] = useState('All');
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+
+  const rangeError = from && to && from > to ? 'The start date is after the end date.' : null;
+  const selected = useMemo(
+    () => (rangeError ? [] : selectIncidentsForExport(incidents, { from, to, state, verifiedOnly })),
+    [incidents, from, to, state, verifiedOnly, rangeError]
+  );
+
+  const quick = [
+    { label: 'Last 7 days', days: 7 },
+    { label: 'Last 30 days', days: 30 },
+    { label: 'Last 90 days', days: 90 }
+  ];
+
+  const download = () => {
+    const scope = state === 'All' ? 'all_states' : state.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    downloadCsv(buildIncidentsCsv(selected), `security_incidents_${from || 'start'}_to_${to || 'today'}_${scope}.csv`);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar text-sm">
+      <p className="text-xs text-gray-300 leading-relaxed">
+        Download incidents by the date they happened, as a CSV file with the same columns as the incident table.
+        It opens in Excel or Google Sheets and can be uploaded again.
+      </p>
+
+      <section className="bg-gray-800/40 border border-gray-700/70 rounded-xl p-3.5 space-y-3">
+        <h3 className="text-xs font-semibold text-green-400 uppercase tracking-wider">Incident dates</h3>
+        <div className="grid grid-cols-2 gap-2.5">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-gray-300">From</span>
+            <input type="date" value={from} max={to || todayIso()} onChange={(e) => setFrom(e.target.value)} className={inputClass(Boolean(rangeError))} aria-label="Download from date" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-gray-300">To</span>
+            <input type="date" value={to} max={todayIso()} onChange={(e) => setTo(e.target.value)} className={inputClass(Boolean(rangeError))} aria-label="Download to date" />
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {quick.map(q => (
+            <button
+              key={q.days}
+              type="button"
+              onClick={() => { setFrom(daysAgoIso(q.days)); setTo(todayIso()); }}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-900 border border-gray-700 text-gray-200 hover:border-green-500 hover:text-white"
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
+        {rangeError && <p className="text-[11px] text-red-300">{rangeError}</p>}
+      </section>
+
+      <section className="grid grid-cols-2 gap-2.5">
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-gray-300">State</span>
+          <select value={state} onChange={(e) => setState(e.target.value)} className={inputClass(false)} aria-label="Download state">
+            <option value="All">All operating states</option>
+            {states.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-xs text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-green-600" />
+          Verified only
+        </label>
+      </section>
+
+      <div className="p-3 rounded-lg border border-gray-700 bg-gray-900/60 text-xs text-gray-300">
+        <span className="text-white font-bold text-base">{selected.length}</span> incident{selected.length === 1 ? '' : 's'}
+        {from || to ? <> from <span className="text-white">{from || 'the start'}</span> to <span className="text-white">{to || 'today'}</span></> : null}
+        {state !== 'All' ? <> in {state}</> : <> across the operating states</>}
+        {verifiedOnly ? ', verified only' : ''}.
+      </div>
+
+      <button
+        type="button"
+        onClick={download}
+        disabled={selected.length === 0}
+        className={`w-full py-3 font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 text-sm ${
+          selected.length === 0
+            ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+            : 'bg-green-600 hover:bg-green-500 text-white'
+        }`}
+      >
+        <Download size={16} /> Download {selected.length} incident{selected.length === 1 ? '' : 's'} (.csv)
+      </button>
     </div>
   );
 }
